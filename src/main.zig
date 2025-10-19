@@ -1,9 +1,12 @@
 const std = @import("std");
 const vk = @import("vulkan");
+
 const c = @import("c.zig");
-const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
-const Swapchain = @import("swapchain.zig").Swapchain;
-const Allocator = std.mem.Allocator;
+const graphics_context = @import("graphics_context.zig");
+const swapchain_ = @import("swapchain.zig");
+
+const GraphicsContext = graphics_context.GraphicsContext;
+const Swapchain = swapchain_.Swapchain;
 
 const vert_spv align(@alignOf(u32)) = @embedFile("vertex_shader").*;
 const frag_spv align(@alignOf(u32)) = @embedFile("fragment_shader").*;
@@ -245,7 +248,7 @@ fn copyBuffer(gc: *const GraphicsContext, pool: vk.CommandPool, dst: vk.Buffer, 
 fn createCommandBuffers(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
-    allocator: Allocator,
+    allocator: std.mem.Allocator,
     buffer: vk.Buffer,
     extent: vk.Extent2D,
     render_pass: vk.RenderPass,
@@ -312,12 +315,12 @@ fn createCommandBuffers(
     return cmdbufs;
 }
 
-fn destroyCommandBuffers(gc: *const GraphicsContext, pool: vk.CommandPool, allocator: Allocator, cmdbufs: []vk.CommandBuffer) void {
+fn destroyCommandBuffers(gc: *const GraphicsContext, pool: vk.CommandPool, allocator: std.mem.Allocator, cmdbufs: []vk.CommandBuffer) void {
     gc.dev.freeCommandBuffers(pool, @truncate(cmdbufs.len), cmdbufs.ptr);
     allocator.free(cmdbufs);
 }
 
-fn createFramebuffers(gc: *const GraphicsContext, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain) ![]vk.Framebuffer {
+fn createFramebuffers(gc: *const GraphicsContext, allocator: std.mem.Allocator, render_pass: vk.RenderPass, swapchain: Swapchain) ![]vk.Framebuffer {
     const framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.swap_images.len);
     errdefer allocator.free(framebuffers);
 
@@ -339,7 +342,7 @@ fn createFramebuffers(gc: *const GraphicsContext, allocator: Allocator, render_p
     return framebuffers;
 }
 
-fn destroyFramebuffers(gc: *const GraphicsContext, allocator: Allocator, framebuffers: []const vk.Framebuffer) void {
+fn destroyFramebuffers(gc: *const GraphicsContext, allocator: std.mem.Allocator, framebuffers: []const vk.Framebuffer) void {
     for (framebuffers) |fb| gc.dev.destroyFramebuffer(fb, null);
     allocator.free(framebuffers);
 }

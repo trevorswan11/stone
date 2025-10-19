@@ -24,5 +24,10 @@
             .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.15-compat#f879074293f0e2f718c93fd19cc0a96260a3aa52",
             .hash = "vulkan-0.0.0-r7Ytx6hBAwBUnt0XA-uOkR2hda4fAHFhQITNTgJpnFkY",
         },
+
+        .glfw = .{
+            .url = "https://github.com/glfw/glfw/archive/3.4.tar.gz",
+            .hash = "N-V-__8AAL40TADEbrysYHBl-UIZO4KiG4chP8pLDVDINGH4",
+        }
     },
 }

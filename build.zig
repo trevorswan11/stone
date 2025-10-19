@@ -154,12 +154,22 @@ fn addGLFW(
             exe.root_module.linkSystemLibrary("shell32", .{});
         },
         .linux => {
-            exe.root_module.linkSystemLibrary("X11", .{});
-            exe.root_module.linkSystemLibrary("Xrandr", .{});
-            exe.root_module.linkSystemLibrary("Xi", .{});
-            exe.root_module.linkSystemLibrary("Xxf86vm", .{});
-            exe.root_module.linkSystemLibrary("Xcursor", .{});
-            exe.root_module.linkSystemLibrary("GL", .{});
+            if (is_wayland) {
+                exe.root_module.linkSystemLibrary("wayland-client", .{});
+                exe.root_module.linkSystemLibrary("wayland-cursor", .{});
+                exe.root_module.linkSystemLibrary("wayland-egl", .{});
+                exe.root_module.linkSystemLibrary("egl", .{});
+                exe.root_module.linkSystemLibrary("drm", .{});
+                exe.root_module.linkSystemLibrary("gbm", .{});
+            } else {
+                exe.root_module.linkSystemLibrary("X11", .{});
+                exe.root_module.linkSystemLibrary("Xrandr", .{});
+                exe.root_module.linkSystemLibrary("Xi", .{});
+                exe.root_module.linkSystemLibrary("Xxf86vm", .{});
+                exe.root_module.linkSystemLibrary("Xcursor", .{});
+                exe.root_module.linkSystemLibrary("GL", .{});
+            }
+            
             exe.root_module.linkSystemLibrary("pthread", .{});
             exe.root_module.linkSystemLibrary("dl", .{});
             exe.root_module.linkSystemLibrary("m", .{});

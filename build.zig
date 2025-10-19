@@ -8,10 +8,11 @@ pub fn build(b: *std.Build) !void {
         else => return error.UnsupportedTarget,
     }
 
+    // TODO: Fix message once wayland is supported
     const wayland = b.option(
         bool,
         "wayland",
-        "Use the wayland backend on linux, defaults to X11",
+        "[Currently Broken] Use the wayland backend on linux, defaults to X11",
     ) orelse false;
 
     const stone_exe = b.addExecutable(.{
@@ -49,6 +50,11 @@ fn addGLFW(
     target: std.Build.ResolvedTarget,
     is_wayland: bool,
 ) void {
+    // TODO: Remove once wayland is supported
+    if (is_wayland) {
+        @panic("Wayland is not currently supported");
+    }
+
     const glfw = b.dependency("glfw", .{});
     exe.addIncludePath(glfw.path("include/GLFW"));
     exe.addIncludePath(glfw.path("src"));
@@ -167,6 +173,8 @@ fn addGLFW(
                 exe.root_module.linkSystemLibrary("egl", .{});
                 exe.root_module.linkSystemLibrary("drm", .{});
                 exe.root_module.linkSystemLibrary("gbm", .{});
+
+                // TODO: Wayland xdg header dependency resolution
             } else {
                 exe.root_module.linkSystemLibrary("X11", .{});
                 exe.root_module.linkSystemLibrary("Xrandr", .{});

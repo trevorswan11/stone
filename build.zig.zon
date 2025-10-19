@@ -1,0 +1,28 @@
+.{
+    .name = .stone,
+
+    .version = "0.0.1",
+    .fingerprint = 0x1920052ae1d1b9c5,
+    .minimum_zig_version = "0.15.1",
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+        "README.md",
+        "AUTHORS.md",
+    },
+
+    .dependencies = .{
+        .vulkan_headers = .{
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.4.309.tar.gz",
+            .hash = "N-V-__8AAPzz4AHlh4uxSRPYF16YYiktAY5ZbN3H69vXPDIC",
+        },
+
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.15-compat#f879074293f0e2f718c93fd19cc0a96260a3aa52",
+            .hash = "vulkan-0.0.0-r7Ytx6hBAwBUnt0XA-uOkR2hda4fAHFhQITNTgJpnFkY",
+        },
+    },
+}

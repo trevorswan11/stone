@@ -121,12 +121,12 @@ fn addGLFW(
                     "src/cocoa_time.c",
                     "src/cocoa_window.m",
                     "src/nsgl_context.m",
+                    "src/posix_module.c",
+                    "src/posix_poll.c",
 
                     "src/posix_thread.c",
                     "src/osmesa_context.c",
                     "src/egl_context.c",
-                    null,
-                    null,
                     null,
                 };
             },

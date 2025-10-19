@@ -72,6 +72,7 @@ fn addGLFW(
 
                     "src/osmesa_context.c",
                     "src/egl_context.c",
+                    null,
                 };
             },
             .linux => {
@@ -80,6 +81,7 @@ fn addGLFW(
                     "src/posix_time.c",
                     "src/glx_context.c",
                     "src/posix_module.c",
+                    "src/posix_poll.c",
 
                     "src/posix_thread.c",
                     "src/osmesa_context.c",
@@ -115,6 +117,7 @@ fn addGLFW(
                     "src/posix_thread.c",
                     "src/osmesa_context.c",
                     "src/egl_context.c",
+                    null,
                     null,
                 };
             },

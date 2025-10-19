@@ -89,16 +89,16 @@ fn addGLFW(
                 if (is_wayland) {
                     platform_define = "-D_GLFW_WAYLAND";
                     break :blk shared ++ [_]?[]const u8{
-                        "src/x11_init.c",
-                        "src/x11_monitor.c",
-                        "src/x11_window.c",
+                        "src/wl_init.c",
+                        "src/wl_monitor.c",
+                        "src/wl_window.c",
                     };
                 } else {
                     platform_define = "-D_GLFW_X11";
                     break :blk shared ++ [_]?[]const u8{
-                        "src/wl_init.c",
-                        "src/wl_monitor.c",
-                        "src/wl_window.c",
+                        "src/x11_init.c",
+                        "src/x11_monitor.c",
+                        "src/x11_window.c",
                     };
                 }
             },
@@ -169,7 +169,7 @@ fn addGLFW(
                 exe.root_module.linkSystemLibrary("Xcursor", .{});
                 exe.root_module.linkSystemLibrary("GL", .{});
             }
-            
+
             exe.root_module.linkSystemLibrary("pthread", .{});
             exe.root_module.linkSystemLibrary("dl", .{});
             exe.root_module.linkSystemLibrary("m", .{});

@@ -73,10 +73,12 @@ fn addGLFW(
                     "src/osmesa_context.c",
                     "src/egl_context.c",
                     null,
+                    null,
                 };
             },
             .linux => {
                 const shared = [_]?[]const u8{
+                    "src/linux_joystick.c",
                     "src/xkb_unicode.c",
                     "src/posix_time.c",
                     "src/glx_context.c",
@@ -117,6 +119,7 @@ fn addGLFW(
                     "src/posix_thread.c",
                     "src/osmesa_context.c",
                     "src/egl_context.c",
+                    null,
                     null,
                     null,
                 };

@@ -43,6 +43,7 @@ jobs:
             libxi-dev \
             libxxf86vm-dev \
             libxcursor-dev \
+            libxinerama-dev \
             libgl1-mesa-dev \
             libegl1-mesa-dev \
             libwayland-dev \

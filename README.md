@@ -18,8 +18,13 @@ zig build run --release=fast
 
 ## Build Tools
 - [Zig 0.15.2](https://ziglang.org/download/) - other versions _will not_ work due to 'Writergate' and other potentially breaking changes
-- [Vulkan](https://vulkan.lunarg.com/) - This is the single dependency not included with the repository. A shallow installation check is performed at comptime when building the project
+- [Vulkan](https://vulkan.lunarg.com/) - This is the single dependency not included with the repository and is required for running any GPU-facing code
 - [cloc](https://github.com/AlDanial/cloc) for the cloc step (optional)
+
+### Important Considerations
+- Stone is developed with Vulkan v1.4.309.0, but other versions likely work
+- It goes without saying that you need a system capable of handling Vulkan
+- Stone currently supports MacOS, Windows, and Linux (X11 only). Wayland support is planned but is not a priority
 
 ## All Build Steps
 | **Step**    | Description                                                                                      |

@@ -19,19 +19,6 @@ comptime {
 }
 
 pub fn build(b: *std.Build) !void {
-    const recommended_vulkan = "1.4.309.0";
-    if (!std.process.hasEnvVarConstant("VULKAN_SDK")) {
-        std.debug.panic(
-            \\Sorry, it looks like you don't have the Vulkan SDK installed. :-(
-            \\
-            \\Stone requires Vulkan to be installed with "VULKAN_SDK" pointing to the installation directory.
-            \\While other versions are likely acceptable, Stone has been tested with version {s}
-            \\
-            \\https://vulkan.lunarg.com/
-            \\
-        , .{recommended_vulkan});
-    }
-
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 

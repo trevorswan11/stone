@@ -33,18 +33,10 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Compilation (Debug)
+      - name: Run Tests (Debug)
         run: |
-          zig build
-
-      - name: Compilation (Release)
-        run: |
-          zig build --release
-
-      - name: Run tests (Debug)
-        run: | 
-          zig build test
+          zig build test -Dlibs=false
 
       - name: Run tests (Release)
         run: | 
-          zig build test --release
+          zig build test --release=fast -Dlibs=false

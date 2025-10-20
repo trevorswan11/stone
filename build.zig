@@ -27,13 +27,6 @@ pub fn build(b: *std.Build) !void {
         else => return error.UnsupportedTarget,
     }
 
-    // TODO: Fix message once wayland is supported
-    const wayland = b.option(
-        bool,
-        "wayland",
-        "[Currently Broken] Use the wayland backend on linux, defaults to X11",
-    ) orelse false;
-
     const core = b.addModule("core", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -67,7 +60,19 @@ pub fn build(b: *std.Build) !void {
     }
 
     // Add necessary steps and remaining artifacts
-    addGraphicsDeps(b, stone, target, wayland);
+    const wayland = b.option(
+        bool,
+        "wayland",
+        "[Currently Broken] Use the wayland backend on linux, defaults to X11", // TODO: Fix message once wayland is supported
+    ) orelse false;
+
+    const libs = b.option(
+        bool,
+        "libs",
+        "Explicitly declare dependence on system libraries. Useful for tests involving non-graphics code",
+    ) orelse true;
+
+    addGraphicsDeps(b, stone, target, wayland, libs);
     try addShaders(b, stone, &.{
         .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
@@ -91,6 +96,7 @@ fn addGraphicsDeps(
     exe: *std.Build.Step.Compile,
     target: std.Build.ResolvedTarget,
     is_wayland: bool,
+    link_system_libs: bool,
 ) void {
     // TODO: Remove once wayland is supported
     if (is_wayland) {
@@ -216,43 +222,45 @@ fn addGraphicsDeps(
     }
 
     // Platform specific libraries
-    switch (target.result.os.tag) {
-        .windows => {
-            exe.root_module.linkSystemLibrary("gdi32", .{});
-            exe.root_module.linkSystemLibrary("user32", .{});
-            exe.root_module.linkSystemLibrary("shell32", .{});
-        },
-        .linux => {
-            if (is_wayland) {
-                exe.root_module.linkSystemLibrary("wayland-client", .{});
-                exe.root_module.linkSystemLibrary("wayland-cursor", .{});
-                exe.root_module.linkSystemLibrary("wayland-egl", .{});
-                exe.root_module.linkSystemLibrary("egl", .{});
-                exe.root_module.linkSystemLibrary("drm", .{});
-                exe.root_module.linkSystemLibrary("gbm", .{});
+    if (link_system_libs) {
+        switch (target.result.os.tag) {
+            .windows => {
+                exe.root_module.linkSystemLibrary("gdi32", .{});
+                exe.root_module.linkSystemLibrary("user32", .{});
+                exe.root_module.linkSystemLibrary("shell32", .{});
+            },
+            .linux => {
+                if (is_wayland) {
+                    exe.root_module.linkSystemLibrary("wayland-client", .{});
+                    exe.root_module.linkSystemLibrary("wayland-cursor", .{});
+                    exe.root_module.linkSystemLibrary("wayland-egl", .{});
+                    exe.root_module.linkSystemLibrary("egl", .{});
+                    exe.root_module.linkSystemLibrary("drm", .{});
+                    exe.root_module.linkSystemLibrary("gbm", .{});
 
-                // TODO: Wayland xdg header dependency resolution
-            } else {
-                exe.root_module.linkSystemLibrary("X11", .{});
-                exe.root_module.linkSystemLibrary("Xrandr", .{});
-                exe.root_module.linkSystemLibrary("Xi", .{});
-                exe.root_module.linkSystemLibrary("Xxf86vm", .{});
-                exe.root_module.linkSystemLibrary("Xcursor", .{});
-                exe.root_module.linkSystemLibrary("GL", .{});
-            }
+                    // TODO: Wayland xdg header dependency resolution
+                } else {
+                    exe.root_module.linkSystemLibrary("X11", .{});
+                    exe.root_module.linkSystemLibrary("Xrandr", .{});
+                    exe.root_module.linkSystemLibrary("Xi", .{});
+                    exe.root_module.linkSystemLibrary("Xxf86vm", .{});
+                    exe.root_module.linkSystemLibrary("Xcursor", .{});
+                    exe.root_module.linkSystemLibrary("GL", .{});
+                }
 
-            exe.root_module.linkSystemLibrary("pthread", .{});
-            exe.root_module.linkSystemLibrary("dl", .{});
-            exe.root_module.linkSystemLibrary("m", .{});
-        },
-        .macos => {
-            exe.root_module.linkFramework("Cocoa", .{});
-            exe.root_module.linkFramework("IOKit", .{});
-            exe.root_module.linkFramework("CoreFoundation", .{});
-            exe.root_module.linkFramework("CoreVideo", .{});
-            exe.root_module.linkFramework("QuartzCore", .{});
-        },
-        else => unreachable,
+                exe.root_module.linkSystemLibrary("pthread", .{});
+                exe.root_module.linkSystemLibrary("dl", .{});
+                exe.root_module.linkSystemLibrary("m", .{});
+            },
+            .macos => {
+                exe.root_module.linkFramework("Cocoa", .{});
+                exe.root_module.linkFramework("IOKit", .{});
+                exe.root_module.linkFramework("CoreFoundation", .{});
+                exe.root_module.linkFramework("CoreVideo", .{});
+                exe.root_module.linkFramework("QuartzCore", .{});
+            },
+            else => unreachable,
+        }
     }
 }
 

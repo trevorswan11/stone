@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: 
+      - main
+      - 'feature/**'
+    paths:
+      - '.github/workflows/ci.yml'
+      - 'src/**'
+      - 'build.zig'
+  pull_request:
+    branches: 
+      - main
+      - 'feature/**'
+    paths:
+      - '.github/workflows/ci.yml'
+      - 'src/**'
+      - 'build.zig'
+
+jobs:
+  build-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Compilation (Debug)
+        run: |
+          zig build
+
+      - name: Compilation (Release)
+        run: |
+          zig build --release
+
+      - name: Run tests (Debug)
+        run: | 
+          zig build test
+
+      - name: Run tests (Release)
+        run: | 
+          zig build test --release

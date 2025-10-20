@@ -1,8 +1,40 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+comptime {
+    const current_zig = builtin.zig_version;
+    const required_zig = std.SemanticVersion.parse("0.15.2") catch unreachable;
+
+    if (current_zig.order(required_zig) != .eq) {
+        const error_message =
+            \\Sorry, it looks like your version of Zig isn't right. :-(
+            \\
+            \\Stone requires Zig version {}
+            \\
+            \\https://ziglang.org/download/
+            \\
+        ;
+        @compileError(std.fmt.comptimePrint(error_message, .{required_zig}));
+    }
+}
 
 pub fn build(b: *std.Build) !void {
+    const recommended_vulkan = "1.4.309.0";
+    if (!std.process.hasEnvVarConstant("VULKAN_SDK")) {
+        std.debug.panic(
+            \\Sorry, it looks like you don't have the Vulkan SDK installed. :-(
+            \\
+            \\Stone requires Vulkan to be installed with "VULKAN_SDK" pointing to the installation directory.
+            \\While other versions are likely acceptable, Stone has been tested with version {s}
+            \\
+            \\https://vulkan.lunarg.com/
+            \\
+        , .{recommended_vulkan});
+    }
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
     switch (target.result.os.tag) {
         .windows, .macos, .linux => {},
         else => return error.UnsupportedTarget,
@@ -15,36 +47,59 @@ pub fn build(b: *std.Build) !void {
         "[Currently Broken] Use the wayland backend on linux, defaults to X11",
     ) orelse false;
 
-    const stone_exe = b.addExecutable(.{
+    const core = b.addModule("core", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const stone = b.addExecutable(.{
         .name = "stone",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "core", .module = core },
+            },
         }),
         .use_llvm = true,
     });
-    b.installArtifact(stone_exe);
+    b.installArtifact(stone);
 
-    addVulkan(b, stone_exe);
-    addGLFW(b, stone_exe, target, wayland);
-    try addShaders(b, stone_exe, &.{
+    // Prevent a console from opening on windows
+    const disable_console = b.option(
+        bool,
+        "window",
+        "Disables the opening on a console with the application on windows",
+    ) orelse false;
+
+    if (target.result.os.tag == .windows and disable_console) {
+        stone.subsystem = .Windows;
+    }
+
+    // Add necessary steps and remaining artifacts
+    addGraphicsDeps(b, stone, target, wayland);
+    try addShaders(b, stone, &.{
         .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
     });
+    addUtils(b);
+    addRunStep(b, stone);
 
-    const stone_run_cmd = b.addRunArtifact(stone_exe);
-    stone_run_cmd.step.dependOn(b.getInstallStep());
-
-    const stone_run_step = b.step("run", "Run the stone example");
-    stone_run_step.dependOn(&stone_run_cmd.step);
+    const test_step = b.step("test", "Run tests");
+    addToTestStep(b, stone.root_module, test_step);
+    addToTestStep(b, core, test_step);
 }
 
-/// Adds all glfw source files and includes to the dependencies.
+/// Adds all graphics-related dependencies.
+/// - GLFW is included based on the target build
+/// - Vulkan is included trivially assuming library presence
 ///
-/// Only windows, macos, and linux are supported. The wayland flag does nothing on non-linux builds.
-fn addGLFW(
+/// Only windows, macos, and linux are supported.
+/// The wayland flag does nothing on non-linux builds.
+fn addGraphicsDeps(
     b: *std.Build,
     exe: *std.Build.Step.Compile,
     target: std.Build.ResolvedTarget,
@@ -54,6 +109,11 @@ fn addGLFW(
     if (is_wayland) {
         @panic("Wayland is not currently supported");
     }
+
+    const vulkan = b.dependency("vulkan", .{
+        .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
+    }).module("vulkan-zig");
+    exe.root_module.addImport("vulkan", vulkan);
 
     const glfw = b.dependency("glfw", .{});
     exe.addIncludePath(glfw.path("include/GLFW"));
@@ -150,11 +210,21 @@ fn addGLFW(
         "src/null_window.c",
     };
 
+    // Source compilation
+    var optimize_flag: []const u8 = "";
+    if (exe.root_module.optimize) |optimize| {
+        switch (optimize) {
+            .Debug => optimize_flag = "-O0",
+            .ReleaseSafe => optimize_flag = "-O2",
+            .ReleaseSmall, .ReleaseFast => optimize_flag = "-O3",
+        }
+    }
+
     const all_sources = platform_sources ++ common_sources;
     for (all_sources) |src| {
         exe.root_module.addCSourceFile(.{
             .file = glfw.path(src orelse continue),
-            .flags = &.{platform_define},
+            .flags = &.{ platform_define, optimize_flag },
         });
     }
 
@@ -199,13 +269,6 @@ fn addGLFW(
     }
 }
 
-fn addVulkan(b: *std.Build, exe: *std.Build.Step.Compile) void {
-    const vulkan = b.dependency("vulkan", .{
-        .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
-    }).module("vulkan-zig");
-    exe.root_module.addImport("vulkan", vulkan);
-}
-
 /// Compiles all provided shaders using zig's spirv target.
 /// Compiled shaders are emitted to the shaders directory in the prefix path.
 ///
@@ -230,6 +293,22 @@ fn addShaders(
     try std.fs.cwd().makePath("zig-out/shaders/");
 
     inline for (shaders) |shader_info| {
+        // Once the above linked issue is resolved, this can be used for shader compilation
+        // const vert_spv = b.addObject(.{
+        //     .name = shader_info.name,
+        //     .root_module = b.createModule(.{
+        //         .root_source_file = b.path(shader_info.source_path),
+        //         .target = spirv_target,
+        //         .optimize = exe.root_module.optimize,
+        //     }),
+        //     .use_llvm = false,
+        // });
+
+        // exe.root_module.addAnonymousImport(
+        //     shader_info.name,
+        //     .{ .root_source_file = vert_spv.getEmittedBin() },
+        // );
+
         const dest_path = "zig-out/shaders/" ++ shader_info.destination_name;
         const shader = b.addSystemCommand(&[_][]const u8{
             "zig",                   "build-obj",
@@ -244,4 +323,52 @@ fn addShaders(
             .root_source_file = b.path(dest_path),
         });
     }
+}
+
+fn addRunStep(b: *std.Build, exe: *std.Build.Step.Compile) void {
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step("run", "Run the engine");
+    run_step.dependOn(&run_cmd.step);
+}
+
+fn addToTestStep(b: *std.Build, module: *std.Build.Module, step: *std.Build.Step) void {
+    const tests = b.addTest(.{
+        .root_module = module,
+    });
+    const run_tests = b.addRunArtifact(tests);
+    step.dependOn(&run_tests.step);
+}
+
+fn addUtils(b: *std.Build) void {
+    // Lint
+    const lint_files = b.addFmt(.{ .paths = &.{"src"}, .check = true });
+    const lint_step = b.step("lint", "Check formatting in all Zig source files");
+    lint_step.dependOn(&lint_files.step);
+
+    // In-place formatting
+    const fmt_files = b.addFmt(.{ .paths = &.{"src"} });
+    const fmt_step = b.step("fmt", "Format all Zig source files");
+    fmt_step.dependOn(&fmt_files.step);
+
+    // Cloc
+    const cloc_src = b.addSystemCommand(&.{
+        "cloc",
+        "build.zig",
+        "src",
+        "shaders",
+        "--not-match-f=(slider_bbs.zig)",
+    });
+
+    const cloc_step = b.step("cloc", "Count total lines of Zig source code");
+    cloc_step.dependOn(&cloc_src.step);
+
+    // Clean (because uninstall broken)
+    const clean_step = b.step("clean", "Clean up emitted artifacts");
+    clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
 }

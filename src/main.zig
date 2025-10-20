@@ -1,9 +1,9 @@
 const std = @import("std");
 const vk = @import("vulkan");
 
-const c = @import("c.zig");
-const graphics_context = @import("graphics_context.zig");
-const swapchain_ = @import("swapchain.zig");
+const c = @import("gui/c.zig");
+const graphics_context = @import("gui/graphics_context.zig");
+const swapchain_ = @import("gui/swapchain.zig");
 
 const GraphicsContext = graphics_context.GraphicsContext;
 const Swapchain = swapchain_.Swapchain;
@@ -11,7 +11,7 @@ const Swapchain = swapchain_.Swapchain;
 const vert_spv align(@alignOf(u32)) = @embedFile("vertex_shader").*;
 const frag_spv align(@alignOf(u32)) = @embedFile("fragment_shader").*;
 
-const app_name = "vulkan-zig triangle example";
+const app_name = "Stone";
 
 const Vertex = struct {
     const binding_description = vk.VertexInputBindingDescription{

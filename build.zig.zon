@@ -3,7 +3,7 @@
 
     .version = "0.0.1",
     .fingerprint = 0x1920052ae1d1b9c5,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.15.2",
 
     .paths = .{
         "build.zig",
@@ -11,7 +11,6 @@
         "src",
         "LICENSE",
         "README.md",
-        "AUTHORS.md",
     },
 
     .dependencies = .{
@@ -28,6 +27,6 @@
         .glfw = .{
             .url = "https://github.com/glfw/glfw/archive/3.4.tar.gz",
             .hash = "N-V-__8AAL40TADEbrysYHBl-UIZO4KiG4chP8pLDVDINGH4",
-        }
+        },
     },
 }

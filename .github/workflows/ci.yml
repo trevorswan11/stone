@@ -52,8 +52,8 @@ jobs:
 
       - name: Run Tests (Debug)
         run: |
-          zig build test -Dlibs=false
+          zig build test
 
       - name: Run tests (Release)
         run: |
-          zig build test --release=fast -Dlibs=false
+          zig build test --release=fast

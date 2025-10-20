@@ -48,6 +48,10 @@ pub fn build(b: *std.Build) !void {
     });
     b.installArtifact(stone);
 
+    const test_step = b.step("test", "Run tests");
+    addToTestStep(b, stone.root_module, test_step);
+    addToTestStep(b, core, test_step);
+
     // Prevent a console from opening on windows
     const disable_console = b.option(
         bool,
@@ -73,16 +77,12 @@ pub fn build(b: *std.Build) !void {
     ) orelse true;
 
     addGraphicsDeps(b, stone, target, wayland, libs);
-    try addShaders(b, stone, &.{
+    try addShaders(b, stone, test_step, &.{
         .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
     });
     addUtils(b);
     addRunStep(b, stone);
-
-    const test_step = b.step("test", "Run tests");
-    addToTestStep(b, stone.root_module, test_step);
-    addToTestStep(b, core, test_step);
 }
 
 /// Adds all graphics-related dependencies.
@@ -271,6 +271,7 @@ fn addGraphicsDeps(
 fn addShaders(
     b: *std.Build,
     exe: *std.Build.Step.Compile,
+    test_step: *std.Build.Step,
     comptime shaders: []const struct {
         name: []const u8,
         source_path: []const u8,
@@ -313,6 +314,7 @@ fn addShaders(
             shader_info.source_path, "-femit-bin=" ++ dest_path,
         });
         exe.step.dependOn(&shader.step);
+        test_step.dependOn(&shader.step);
 
         exe.root_module.addAnonymousImport(shader_info.name, .{
             .root_source_file = b.path(dest_path),

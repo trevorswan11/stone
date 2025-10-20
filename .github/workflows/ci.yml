@@ -2,21 +2,21 @@ name: CI
 
 on:
   push:
-    branches: 
+    branches:
       - main
-      - 'feature/**'
+      - "feature/**"
     paths:
-      - '.github/workflows/ci.yml'
-      - 'src/**'
-      - 'build.zig'
+      - ".github/workflows/ci.yml"
+      - "src/**"
+      - "build.zig"
   pull_request:
-    branches: 
+    branches:
       - main
-      - 'feature/**'
+      - "feature/**"
     paths:
-      - '.github/workflows/ci.yml'
-      - 'src/**'
-      - 'build.zig'
+      - ".github/workflows/ci.yml"
+      - "src/**"
+      - "build.zig"
 
 jobs:
   build-test:
@@ -33,10 +33,27 @@ jobs:
         with:
           version: 0.15.2
 
+      - name: Install system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxxf86vm-dev \
+            libxcursor-dev \
+            libgl1-mesa-dev \
+            libegl1-mesa-dev \
+            libwayland-dev \
+            libwayland-egl1-mesa \
+            libdrm-dev \
+            libgbm-dev
+
       - name: Run Tests (Debug)
         run: |
           zig build test -Dlibs=false
 
       - name: Run tests (Release)
-        run: | 
+        run: |
           zig build test --release=fast -Dlibs=false

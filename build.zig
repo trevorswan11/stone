@@ -64,19 +64,16 @@ pub fn build(b: *std.Build) !void {
     }
 
     // Add necessary steps and remaining artifacts
-    const wayland = b.option(
-        bool,
-        "wayland",
-        "[Currently Broken] Use the wayland backend on linux, defaults to X11", // TODO: Fix message once wayland is supported
-    ) orelse false;
 
-    addGraphicsDeps(b, stone, target, wayland);
+    addGraphicsDeps(b, stone, target);
     try addShaders(b, stone, test_step, &.{
         .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
     });
     addUtils(b);
     addRunStep(b, stone);
+
+    addCoreExamples(b, core, target, optimize);
 }
 
 /// Adds all graphics-related dependencies.
@@ -89,10 +86,14 @@ fn addGraphicsDeps(
     b: *std.Build,
     exe: *std.Build.Step.Compile,
     target: std.Build.ResolvedTarget,
-    is_wayland: bool,
 ) void {
-    // TODO: Remove once wayland is supported
-    if (is_wayland) {
+    const is_wayland = b.option(
+        bool,
+        "wayland",
+        "[Currently Broken] Use the wayland backend on linux, defaults to X11", // TODO: Fix message once wayland is supported
+    ) orelse false;
+
+    if (target.result.os.tag == .linux and is_wayland) {
         @panic("Wayland is not currently supported");
     }
 
@@ -323,6 +324,35 @@ fn addRunStep(b: *std.Build, exe: *std.Build.Step.Compile) void {
 
     const run_step = b.step("run", "Run the engine");
     run_step.dependOn(&run_cmd.step);
+}
+
+fn addCoreExamples(
+    b: *std.Build,
+    core_module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    // Neighborhood search demo
+    const search_exe = b.addExecutable(.{
+        .name = "neighbor",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/core/neighborhood/example.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "core", .module = core_module },
+            },
+        }),
+        .use_llvm = true,
+    });
+
+    const run_search_example = b.addRunArtifact(search_exe);
+    run_search_example.step.dependOn(b.getInstallStep());
+
+    const search_step = b.step("neighbor", "Run the neighborhood search 'benchmark'");
+    search_step.dependOn(&run_search_example.step);
+    search_step.dependOn(&b.addInstallArtifact(search_exe, .{}).step);
 }
 
 fn addToTestStep(b: *std.Build, module: *std.Build.Module, step: *std.Build.Step) void {

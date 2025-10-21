@@ -36,6 +36,7 @@ zig build run --release=fast
 | `fmt`       | Format all source code excluding `build.zig`.                                                    |
 | `cloc`      | Count the total lines of zig code. Requires [cloc](https://github.com/AlDanial/cloc).            |
 | `clean`     | Recursively delete the `zig-out` directory. This a workaround for the buggy `uninstall` command. |
+| `neighbor`  | Run the neighborhood search 'benchmark'.                                                         |
 
 Once wayland is supported, Linux users can specify their graphics backend by using the `-Dwayland` flag during the build process. When this flag is not passed, X11 is chosen as the backend. Windows users are also able to disable the console which pops up when running the bare executable by passing the `-Dwindow` flag when building. This flag is automatically enabled for ReleaseFast and ReleaseSmall builds.
 

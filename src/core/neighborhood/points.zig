@@ -2,10 +2,12 @@ const std = @import("std");
 
 const hash = @import("hash.zig");
 
+pub const ValueType = usize;
+
 /// A qualified point with a categorized set id.
 pub const PointID = struct {
-    id: u32,
-    set_id: u32,
+    id: ValueType,
+    set_id: ValueType,
 
     pub fn eql(self: PointID, other: PointID) bool {
         return self.id == other.id and self.set_id == other.set_id;
@@ -45,17 +47,20 @@ pub fn PointSet(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        pub const NeighborAccumulator = std.ArrayList(std.ArrayList(ValueType));
+        pub const NeighborList = std.ArrayList(NeighborAccumulator);
+
         allocator: std.mem.Allocator,
 
-        position_data: []const T,
+        position_data: []T,
         number_of_points: usize,
         dynamic: bool,
 
-        neighbors: std.ArrayList(std.ArrayList(std.ArrayList(u32))) = .empty,
+        neighbors: NeighborList = .empty,
         keys: std.ArrayList(hash.Key) = .empty,
         old_keys: std.ArrayList(hash.Key) = .empty,
 
-        sort_table: std.ArrayList(u32) = .empty,
+        sort_table: std.ArrayList(ValueType) = .empty,
         locks: std.ArrayList(std.ArrayList(SpinLock)) = .empty,
 
         /// Creates a PointSet with the allocator and all fields uninitialized.
@@ -84,6 +89,41 @@ pub fn PointSet(comptime T: type) type {
             self.old_keys = try self.keys.clone(allocator);
 
             return self;
+        }
+
+        /// Resizes the point set, obviously.
+        pub fn resize(
+            self: *Self,
+            position_data: []const T,
+            total_points: usize,
+        ) !void {
+            self.allocator.free(self.position_data);
+            self.position_data = try self.allocator.dupe(T, position_data);
+            self.number_of_points = total_points;
+
+            try self.keys.resize(self.allocator, total_points);
+            try self.old_keys.resize(self.allocator, total_points);
+            for (0..total_points) |i| {
+                self.keys.items[i] = .splat(std.math.minInt(i32));
+                self.old_keys.items[i] = .splat(std.math.minInt(i32));
+            }
+
+            const old_len = self.neighbors.items.len;
+            if (total_points < old_len) {
+                for (self.neighbors.items[total_points..]) |*neighbor_L2| {
+                    defer neighbor_L2.deinit(self.allocator);
+                    for (neighbor_L2.items) |*nested_L1| {
+                        nested_L1.deinit(self.allocator);
+                    }
+                }
+            }
+
+            try self.neighbors.resize(self.allocator, total_points);
+            if (total_points > old_len) {
+                for (self.neighbors.items[old_len..]) |*neighbor_L2| {
+                    neighbor_L2.* = .empty;
+                }
+            }
         }
 
         /// Deinitializes all allocated data.
@@ -123,7 +163,7 @@ pub fn PointSet(comptime T: type) type {
         /// Fetches the id pair of the kth neighbor of the given point in the given point set.
         ///
         /// Asserts that the set, index, and neighbor values are within range.
-        pub fn fetchNeighbor(self: *const Self, point_set: usize, point_index: usize, neighbor: usize) u32 {
+        pub fn fetchNeighbor(self: *const Self, point_set: usize, point_index: usize, neighbor: usize) ValueType {
             std.debug.assert(point_set < self.neighbors.items.len);
             std.debug.assert(point_index < self.neighbors.items[point_set].items.len);
             std.debug.assert(neighbor < self.neighbors.items[point_set].items[point_index].items.len);
@@ -139,11 +179,11 @@ pub fn PointSet(comptime T: type) type {
             self: *const Self,
             point_set: usize,
             point_index: usize,
-        ) ![]u32 {
+        ) ![]ValueType {
             std.debug.assert(point_set < self.neighbors.items.len);
             std.debug.assert(point_index < self.neighbors.items[point_set].items.len);
             const neighbors = self.neighbors.items[point_set].items[point_set];
-            return try self.allocator.dupe(u32, neighbors.items);
+            return try self.allocator.dupe(ValueType, neighbors.items);
         }
 
         /// Reorders an array according to a previously generated sort table by zort.
@@ -165,9 +205,9 @@ pub fn PointSet(comptime T: type) type {
         ///
         /// The offset should be a multiple of three, but this is not asserted.
         /// Asserts that the upper found of the requested index is in range (valid z).
-        pub fn point(self: *const Self, offset: usize) []const T {
-            std.debug.assert(3 * offset + 3 < self.position_data.len);
-            return self.position_data[3 * offset .. 3 * offset + 3];
+        pub fn point(self: *const Self, offset: usize) *const [3]T {
+            std.debug.assert(3 * offset + 3 <= self.position_data.len);
+            return self.position_data[3 * offset .. 3 * offset + 3][0..3];
         }
     };
 }
@@ -206,11 +246,11 @@ test "PointSet basic init/deinit and sort" {
 
     const p1 = set.point(1);
     try expectEqualSlices(f32, p1, &[_]f32{ 1.0, 1.1, 1.2 });
-    try set.sort_table.appendSlice(allocator, &[_]u32{ 2, 1, 0 });
+    try set.sort_table.appendSlice(allocator, &[_]ValueType{ 2, 1, 0 });
 
-    var data = [_]u32{ 10, 20, 30 };
-    try set.sort(u32, &data);
-    try expectEqualSlices(u32, &[_]u32{ 30, 20, 10 }, &data);
+    var data = [_]ValueType{ 10, 20, 30 };
+    try set.sort(ValueType, &data);
+    try expectEqualSlices(ValueType, &[_]ValueType{ 30, 20, 10 }, &data);
 }
 
 test "PointSet neighborCount and fetchNeighbor" {
@@ -220,17 +260,17 @@ test "PointSet neighborCount and fetchNeighbor" {
     var set = try PointSet(f32).init(allocator, &points, 2, true);
     defer set.deinit();
 
-    try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(u32)).initCapacity(allocator, 2));
-    try set.neighbors.items[0].append(allocator, try std.ArrayList(u32).initCapacity(allocator, 2));
-    try set.neighbors.items[0].items[0].appendSlice(allocator, &[_]u32{ 7, 8, 9 });
+    try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(ValueType)).initCapacity(allocator, 2));
+    try set.neighbors.items[0].append(allocator, try std.ArrayList(ValueType).initCapacity(allocator, 2));
+    try set.neighbors.items[0].items[0].appendSlice(allocator, &[_]ValueType{ 7, 8, 9 });
 
     const count = set.neighborCount(0, 0);
     try expectEqual(@as(usize, 3), count);
 
     const n0 = set.fetchNeighbor(0, 0, 0);
     const n2 = set.fetchNeighbor(0, 0, 2);
-    try expectEqual(@as(u32, 7), n0);
-    try expectEqual(@as(u32, 9), n2);
+    try expectEqual(@as(ValueType, 7), n0);
+    try expectEqual(@as(ValueType, 9), n2);
 }
 
 test "PointSet fetchNeighborList returns copy" {
@@ -240,17 +280,17 @@ test "PointSet fetchNeighborList returns copy" {
     var set = try PointSet(f32).init(allocator, &points, 2, true);
     defer set.deinit();
 
-    try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(u32)).initCapacity(allocator, 2));
-    try set.neighbors.items[0].append(allocator, try std.ArrayList(u32).initCapacity(allocator, 2));
-    try set.neighbors.items[0].items[0].appendSlice(allocator, &[_]u32{ 42, 43 });
+    try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(ValueType)).initCapacity(allocator, 2));
+    try set.neighbors.items[0].append(allocator, try std.ArrayList(ValueType).initCapacity(allocator, 2));
+    try set.neighbors.items[0].items[0].appendSlice(allocator, &[_]ValueType{ 42, 43 });
 
     const duped = try set.fetchNeighborList(0, 0);
     defer allocator.free(duped);
 
-    try expectEqualSlices(u32, duped, &[_]u32{ 42, 43 });
+    try expectEqualSlices(ValueType, duped, &[_]ValueType{ 42, 43 });
 
     duped[0] = 999;
-    try expectEqual(@as(u32, 42), set.neighbors.items[0].items[0].items[0]);
+    try expectEqual(@as(ValueType, 42), set.neighbors.items[0].items[0].items[0]);
 }
 
 test "PointSet sort errors when table missing" {
@@ -260,7 +300,7 @@ test "PointSet sort errors when table missing" {
     var set = try PointSet(f32).init(allocator, &points, 2, true);
     defer set.deinit();
 
-    var arr = [_]u32{ 1, 2 };
-    const err = set.sort(u32, &arr) catch |e| e;
+    var arr = [_]ValueType{ 1, 2 };
+    const err = set.sort(ValueType, &arr) catch |e| e;
     try expectError(error.InvalidOrMissingTable, err);
 }

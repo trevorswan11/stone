@@ -6,7 +6,7 @@ const points = @import("points.zig");
 /// The type for a spatial hash map.
 pub const SpatialMap = std.HashMap(
     Key,
-    u32,
+    points.ValueType,
     Key.Context,
     std.hash_map.default_max_load_percentage,
 );
@@ -34,11 +34,13 @@ pub const Key = struct {
             83492791,
         };
 
-        pub fn eql(a: Key, b: Key) bool {
+        pub fn eql(ctx: Context, a: Key, b: Key) bool {
+            _ = ctx;
             return a.eql(b);
         }
 
-        pub fn hash(k: Key) u64 {
+        pub fn hash(ctx: Context, k: Key) u64 {
+            _ = ctx;
             const i_key = factors[0] *% k.key[0];
             const j_key = factors[1] *% k.key[1];
             const k_key = factors[2] *% k.key[2];
@@ -97,12 +99,45 @@ pub const Entry = struct {
 pub const ActivationTable = struct {
     const default_table_size: usize = 50;
 
+    pub const SetFlags = struct {
+        /// If true, neighbors in all other point sets are searched.
+        search_neighbors: bool = true,
+
+        /// If true, the new point set is activated in the neighborhood search of all other point sets.
+        find_neighbors: bool = true,
+    };
+
+    pub const Variant = union(enum) {
+        /// Activate/Deactivate all point set pairs.
+        ///
+        /// Asserts that the underlying table has square dimensions.
+        /// This is an invariant of the table only invalidated by nefarious users.
+        all: bool,
+
+        /// Activate/Deactivate indicating whether index2 should be considered a neighbor of index1.
+        ///
+        /// Asserts that the two indices are valid, assuming the table has square dimensions.
+        neighbor: struct { idx1: usize, idx2: usize, active: bool },
+
+        /// Activate/Deactivate all point set pairs containing the given index.
+        pairs: struct { index: usize, set_flags: SetFlags },
+    };
+
     allocator: std.mem.Allocator,
 
     table: std.ArrayList(std.ArrayList(u1)) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) ActivationTable {
         return .{ .allocator = allocator };
+    }
+
+    pub fn clone(self: *const ActivationTable, allocator: std.mem.Allocator) !ActivationTable {
+        var cloned = ActivationTable.init(allocator);
+        try cloned.table.ensureTotalCapacity(allocator, self.table.items.len);
+        for (self.table.items) |row| {
+            cloned.table.appendAssumeCapacity(try row.clone(allocator));
+        }
+        return cloned;
     }
 
     pub fn deinit(self: *ActivationTable) void {
@@ -126,22 +161,17 @@ pub const ActivationTable = struct {
     }
 
     /// Adds a point set to the graph.
-    /// - If search_neighbors is true, neighbors in all other point sets are searched.
-    /// - If find_neighbors is true, the new point set is activated in the neighborhood search of all other point sets.
     ///
     /// Can only fail due to memory allocation, which invalidates element pointers when successful.
     pub fn addPointSet(
         self: *ActivationTable,
-        comptime options: struct {
-            search_neighbors: bool = true,
-            find_neighbors: bool = true,
-        },
+        set_flags: SetFlags,
     ) !void {
         // Add a new column to each row
         const size = self.table.items.len;
         for (0..size) |i| {
             try self.table.items[i].resize(self.allocator, size + 1);
-            self.table.items[i].items[size] = @intFromBool(options.find_neighbors);
+            self.table.items[i].items[size] = @intFromBool(set_flags.find_neighbors);
         }
 
         // Add a new row
@@ -149,33 +179,12 @@ pub const ActivationTable = struct {
         self.table.items[size] = try .initCapacity(self.allocator, size + 1);
         try self.table.items[size].resize(self.allocator, size + 1);
         for (self.table.items[size].items) |*item| {
-            item.* = @intFromBool(options.search_neighbors);
+            item.* = @intFromBool(set_flags.search_neighbors);
         }
     }
 
     /// Activate/Deactivate a requested table location.
-    ///
-    /// All:
-    /// - Activate/Deactivate all point set pairs.
-    /// - Asserts that the underlying table has square dimensions.
-    /// This is an invariant of the table only invalidated by nefarious users.
-    ///
-    /// Neighbor:
-    /// - Activate/Deactivate indicating whether index2 should be considered a neighbor of index1.
-    /// - Asserts that the two indices are valid, assuming the table has square dimensions.
-    ///
-    /// Pairs:
-    /// - Activate/Deactivate all point set pairs containing the given index.
-    /// - If search_neighbors is true, neighbors in all other point sets are searched.
-    /// - If find_neighbors is true, the new point set is activated in the neighborhood search of all other point sets.
-    pub fn setActive(
-        self: *ActivationTable,
-        variant: union(enum) {
-            all: bool,
-            neighbor: struct { idx1: usize, idx2: usize, active: bool },
-            pairs: struct { index: usize, search_neighbors: bool, find_neighbors: bool },
-        },
-    ) void {
+    pub fn setActive(self: *ActivationTable, variant: Variant) void {
         switch (variant) {
             .all => |active| {
                 const size = self.table.items.len;
@@ -195,8 +204,8 @@ pub const ActivationTable = struct {
                 const size = self.table.items.len;
                 const index, const find_neighbors, const search_neighbors = .{
                     pair.index,
-                    pair.find_neighbors,
-                    pair.search_neighbors,
+                    pair.set_flags.find_neighbors,
+                    pair.set_flags.search_neighbors,
                 };
                 std.debug.assert(index < size);
 
@@ -213,7 +222,7 @@ pub const ActivationTable = struct {
     /// Checks if a pair is active.
     ///
     /// Asserts that the two indices are valid, assuming the table has square dimensions.
-    pub fn isActive(self: *ActivationTable, idx1: usize, idx2: usize) bool {
+    pub fn isActive(self: *const ActivationTable, idx1: usize, idx2: usize) bool {
         std.debug.assert(idx1 < self.table.items.len and idx2 < self.table.items.len);
         return self.table.items[idx1].items[idx2] == 1;
     }
@@ -250,16 +259,16 @@ test "Key creation and comparison" {
 }
 
 test "Key hashing" {
-    try expectEqual(18416305591877621035, Key.Context.hash(.init(-2065305262, 481853423, 1998602736)));
-    try expectEqual(120364129744059780, Key.Context.hash(.init(-723594490, 723459257, -997786085)));
-    try expectEqual(18281781679266513065, Key.Context.hash(.init(2115057420, 2030513621, -793898702)));
-    try expectEqual(137172815755025859, Key.Context.hash(.init(-1563224045, -379012780, 348812344)));
-    try expectEqual(217303284002470276, Key.Context.hash(.init(-2114803654, 1884362860, -1454415730)));
-    try expectEqual(18406753012562953102, Key.Context.hash(.init(904033316, -713233864, 276878398)));
-    try expectEqual(9406530778922349, Key.Context.hash(.init(-1783933800, 1827963946, -1324368939)));
-    try expectEqual(74667072075054406, Key.Context.hash(.init(-1931484049, -98502170, 826972073)));
-    try expectEqual(251989153484924213, Key.Context.hash(.init(-1962758367, 710546820, -1122302356)));
-    try expectEqual(125580828515700831, Key.Context.hash(.init(-1458465012, 350252140, -730236255)));
+    try expectEqual(18416305591877621035, Key.Context.hash(.{}, .init(-2065305262, 481853423, 1998602736)));
+    try expectEqual(120364129744059780, Key.Context.hash(.{}, .init(-723594490, 723459257, -997786085)));
+    try expectEqual(18281781679266513065, Key.Context.hash(.{}, .init(2115057420, 2030513621, -793898702)));
+    try expectEqual(137172815755025859, Key.Context.hash(.{}, .init(-1563224045, -379012780, 348812344)));
+    try expectEqual(217303284002470276, Key.Context.hash(.{}, .init(-2114803654, 1884362860, -1454415730)));
+    try expectEqual(18406753012562953102, Key.Context.hash(.{}, .init(904033316, -713233864, 276878398)));
+    try expectEqual(9406530778922349, Key.Context.hash(.{}, .init(-1783933800, 1827963946, -1324368939)));
+    try expectEqual(74667072075054406, Key.Context.hash(.{}, .init(-1931484049, -98502170, 826972073)));
+    try expectEqual(251989153484924213, Key.Context.hash(.{}, .init(-1962758367, 710546820, -1122302356)));
+    try expectEqual(125580828515700831, Key.Context.hash(.{}, .init(-1458465012, 350252140, -730236255)));
 }
 
 test "Entry init and deinit" {
@@ -305,7 +314,7 @@ test "Entry operations" {
     try entry.add(.{ .id = 20, .set_id = 0 });
     try entry.add(.{ .id = 30, .set_id = 0 });
     try expectEqual(3, entry.indices.items.len);
-    try expectEqualSlices(u32, &.{ 10, 20, 30 }, &.{
+    try expectEqualSlices(points.ValueType, &.{ 10, 20, 30 }, &.{
         entry.indices.items[0].id,
         entry.indices.items[1].id,
         entry.indices.items[2].id,
@@ -316,7 +325,7 @@ test "Entry operations" {
 
     entry.remove(.{ .id = 20, .set_id = 0 });
     try expectEqual(2, entry.indices.items.len);
-    try expectEqualSlices(u32, &.{ 10, 30 }, &.{
+    try expectEqualSlices(points.ValueType, &.{ 10, 30 }, &.{
         entry.indices.items[0].id,
         entry.indices.items[1].id,
     });
@@ -340,7 +349,7 @@ test "Entry operations" {
 
     entry.remove(.{ .id = 10, .set_id = 0 });
     try expectEqual(3, entry.indices.items.len);
-    try expectEqualSlices(u32, &.{ 10, 20, 30 }, &.{
+    try expectEqualSlices(points.ValueType, &.{ 10, 20, 30 }, &.{
         entry.indices.items[0].id,
         entry.indices.items[1].id,
         entry.indices.items[2].id,
@@ -348,7 +357,7 @@ test "Entry operations" {
 
     entry.remove(.{ .id = 10, .set_id = 0 });
     try expectEqual(2, entry.indices.items.len);
-    try expectEqualSlices(u32, &.{ 30, 20 }, &.{
+    try expectEqualSlices(points.ValueType, &.{ 30, 20 }, &.{
         entry.indices.items[0].id,
         entry.indices.items[1].id,
     });
@@ -424,8 +433,10 @@ test "ActivationTable comprehensive" {
 
     table.setActive(.{ .pairs = .{
         .index = 2,
-        .search_neighbors = true,
-        .find_neighbors = true,
+        .set_flags = .{
+            .search_neighbors = true,
+            .find_neighbors = true,
+        },
     } });
     try expectEqualSlices(u1, &.{ 0, 1, 1 }, table.table.items[0].items);
     try expectEqualSlices(u1, &.{ 0, 0, 1 }, table.table.items[1].items);
@@ -437,8 +448,10 @@ test "ActivationTable comprehensive" {
 
     table.setActive(.{ .pairs = .{
         .index = 1,
-        .search_neighbors = false,
-        .find_neighbors = true,
+        .set_flags = .{
+            .search_neighbors = false,
+            .find_neighbors = true,
+        },
     } });
     try expectEqualSlices(u1, &.{ 0, 1, 1 }, table.table.items[0].items);
     try expectEqualSlices(u1, &.{ 0, 0, 0 }, table.table.items[1].items);

@@ -1,13 +1,16 @@
 const std = @import("std");
 
+const points = @import("points.zig");
+const hash = @import("hash.zig");
+
 /// Bitwise Z-order encoding for a 3D position using pre-shifted LUTs.
 ///
 /// https://github.com/Forceflow/libmorton/blob/main/include/libmorton/morton3D.h
-pub fn zencode(x: u32, y: u32, z: u32) u64 {
+pub fn zencode(x: points.ValueType, y: points.ValueType, z: points.ValueType) u64 {
     var answer: u64 = 0;
     const x_idx: usize, const y_idx: usize, const z_idx: usize = .{ x, y, z };
 
-    const indices = comptime decreasing(u32);
+    const indices = comptime decreasing(points.ValueType);
     inline for (indices) |i| {
         const shift: usize = comptime (i - 1) * 8;
         const x_encode = lut[x_offset + ((x_idx >> comptime @truncate(shift % wrapped_bits)) & eight_bit_mask)];
@@ -16,6 +19,15 @@ pub fn zencode(x: u32, y: u32, z: u32) u64 {
         answer = answer << 24 | (x_encode | y_encode | z_encode);
     }
     return answer;
+}
+
+/// Bitwise Z-order encoding for a signed key.
+pub fn zencodeKey(key: hash.Key) u64 {
+    const min: i64 = comptime std.math.minInt(i32) + 1;
+    const x: points.ValueType = @intCast(@as(i64, @intCast(key.key[0])) - min);
+    const y: points.ValueType = @intCast(@as(i64, @intCast(key.key[1])) - min);
+    const z: points.ValueType = @intCast(@as(i64, @intCast(key.key[2])) - min);
+    return zencode(x, y, z);
 }
 
 /// Returns a monotonically decreasing array of [@sizeOf(T)..0].
@@ -43,7 +55,7 @@ const x_offset: usize = 256 * 0;
 const y_offset: usize = 256 * 1;
 const z_offset: usize = 256 * 2;
 
-const lut: [256 * 3]u32 = .{
+const lut: [256 * 3]points.ValueType = .{
     // x-coordinate lut
     0x00000000, 0x00000001, 0x00000008, 0x00000009, 0x00000040, 0x00000041, 0x00000048, 0x00000049,
     0x00000200, 0x00000201, 0x00000208, 0x00000209, 0x00000240, 0x00000241, 0x00000248, 0x00000249,

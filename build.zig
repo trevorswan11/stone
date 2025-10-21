@@ -350,7 +350,6 @@ fn addUtils(b: *std.Build) void {
         "build.zig",
         "src",
         "shaders",
-        "--not-match-f=(slider_bbs.zig)",
     });
 
     const cloc_step = b.step("cloc", "Count total lines of Zig source code");

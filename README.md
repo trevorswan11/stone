@@ -42,4 +42,9 @@ Once wayland is supported, Linux users can specify their graphics backend by usi
 # Contributing
 While this is mainly a solo project, contributors are always welcome! This is my second project involving graphics rendering, so I have a lot to learn and would benefit from any external contributions. Checkout [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the project's guidelines.
 
+# Credits
+The following libraries, articles, and courses were integral to the development of this project:
+- SPH Techniques [Online Course](https://sph-tutorial.physics-simulation.org/)
+- Z-order encoding/decoding with [libmorton](https://www.forceflow.be/2016/01/18/libmorton-a-library-for-morton-order-encoding-decoding/)
+
 _This project's logo was created by Google Gemini 2.5_

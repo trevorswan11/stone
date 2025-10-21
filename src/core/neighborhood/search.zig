@@ -1070,7 +1070,6 @@ test "Search neighbor queries" {
     // Run search to update internal state (.actual)
     try search.findNeighbors(.{ .actual = .{ .points_changed = true } });
 
-
     // Using .single_point_from_set
     {
         var neighbors_from_set: S.PointSet.NeighborAccumulator = .empty;

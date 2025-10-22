@@ -66,14 +66,13 @@ pub fn build(b: *std.Build) !void {
     // Add necessary steps and remaining artifacts
 
     addGraphicsDeps(b, stone, target);
-    try addShaders(b, stone, test_step, &.{
+    const examples = addCoreExamples(b, core, target, optimize);
+    try addShaders(b, stone, test_step, examples, &.{
         .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
     });
     addUtils(b);
     addRunStep(b, stone);
-
-    addCoreExamples(b, core, target, optimize);
 }
 
 /// Adds all graphics-related dependencies.
@@ -264,12 +263,19 @@ fn addShaders(
     b: *std.Build,
     exe: *std.Build.Step.Compile,
     test_step: *std.Build.Step,
+    examples: anytype,
     comptime shaders: []const struct {
         name: []const u8,
         source_path: []const u8,
         destination_name: []const u8,
     },
 ) !void {
+    const ExamplesType = @TypeOf(examples);
+    const examples_type_info = @typeInfo(ExamplesType);
+    if (examples_type_info != .@"struct") {
+        @compileError("expected tuple or struct argument, found " ++ @typeName(ExamplesType));
+    }
+
     const spirv_target = b.resolveTargetQuery(.{
         .cpu_arch = .spirv32,
         .os_tag = .vulkan,
@@ -307,6 +313,11 @@ fn addShaders(
         });
         exe.step.dependOn(&shader.step);
         test_step.dependOn(&shader.step);
+        const fields_info = examples_type_info.@"struct".fields;
+        inline for (fields_info) |field| {
+            const executable: *std.Build.Step.Compile = @field(examples, field.name);
+            executable.step.dependOn(&shader.step);
+        }
 
         exe.root_module.addAnonymousImport(shader_info.name, .{
             .root_source_file = b.path(dest_path),
@@ -331,7 +342,7 @@ fn addCoreExamples(
     core_module: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-) void {
+) struct { *std.Build.Step.Compile } {
     // Neighborhood search demo
     const search_exe = b.addExecutable(.{
         .name = "neighbor",
@@ -353,6 +364,10 @@ fn addCoreExamples(
     const search_step = b.step("neighbor", "Run the neighborhood search 'benchmark'");
     search_step.dependOn(&run_search_example.step);
     search_step.dependOn(&b.addInstallArtifact(search_exe, .{}).step);
+
+    return .{
+        search_exe,
+    };
 }
 
 fn addToTestStep(b: *std.Build, module: *std.Build.Module, step: *std.Build.Step) void {

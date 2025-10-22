@@ -353,7 +353,7 @@ pub fn Search(comptime T: type) type {
                                 const xb = self.point_sets.items[pb.set_id].point(pb.id);
 
                                 // TODO: Investigate need for locks
-                                if (distanceSquared(xa, xb) < self.radius) {
+                                if (distanceSquared(xa, xb) < self.radius2) {
                                     // Check both activations since edges are directed
                                     if (self.activation_table.isActive(pa.set_id, pb.set_id)) {
                                         try self.point_sets.items[pa.set_id].neighbors.items[pb.set_id].items[pa.id].append(
@@ -443,7 +443,7 @@ pub fn Search(comptime T: type) type {
                                             const xa = self.point_sets.items[pa.set_id].point(pa.id);
                                             const xb = self.point_sets.items[pb.set_id].point(pb.id);
 
-                                            if (distanceSquared(xa, xb) < self.radius) {
+                                            if (distanceSquared(xa, xb) < self.radius2) {
                                                 // Check both activations since edges are directed
                                                 if (self.activation_table.isActive(pa.set_id, pb.set_id)) {
                                                     self.point_sets.items[pa.set_id].locks.items[pb.set_id].items[pa.id].lock();

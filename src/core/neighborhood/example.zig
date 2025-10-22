@@ -171,7 +171,8 @@ const Example = struct {
         for (0..first_set.number_of_points) |i| {
             for (0..first_set.neighborCount(0, i)) |j| {
                 const k = first_set.fetchNeighbor(0, i, j);
-                acc += @floatFromInt(@abs(i - k));
+                const diff = @as(isize, @intCast(i)) - @as(isize, @intCast(k));
+                acc += @floatFromInt(@abs(diff));
                 count += 1.0;
             }
         }

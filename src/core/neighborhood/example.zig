@@ -232,7 +232,12 @@ const Example = struct {
 };
 
 pub fn main() !void {
-    const allocator = std.heap.page_allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    const allocator = gpa.allocator();
+    defer {
+        const c = gpa.deinit();
+        if (c == .leak) @panic("I leaked :(");
+    }
 
     var buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&buffer);

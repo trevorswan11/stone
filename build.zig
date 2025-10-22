@@ -48,10 +48,6 @@ pub fn build(b: *std.Build) !void {
     });
     b.installArtifact(stone);
 
-    const test_step = b.step("test", "Run tests");
-    addToTestStep(b, stone.root_module, test_step);
-    addToTestStep(b, core, test_step);
-
     // Prevent a console from opening on windows
     const disable_console = b.option(
         bool,
@@ -64,7 +60,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     // Add necessary steps and remaining artifacts
-
+    const test_step = b.step("test", "Run tests");
     addGraphicsDeps(b, stone, target);
     const examples = addCoreExamples(b, core, target, optimize);
     try addShaders(b, stone, test_step, examples, &.{
@@ -73,6 +69,9 @@ pub fn build(b: *std.Build) !void {
     });
     addUtils(b);
     addRunStep(b, stone);
+
+    addToTestStep(b, stone.root_module, test_step);
+    addToTestStep(b, core, test_step);
 }
 
 /// Adds all graphics-related dependencies.
@@ -311,8 +310,10 @@ fn addShaders(
             "-mcpu",                 "vulkan_v1_2",
             shader_info.source_path, "-femit-bin=" ++ dest_path,
         });
+
         exe.step.dependOn(&shader.step);
         test_step.dependOn(&shader.step);
+
         const fields_info = examples_type_info.@"struct".fields;
         inline for (fields_info) |field| {
             const executable: *std.Build.Step.Compile = @field(examples, field.name);

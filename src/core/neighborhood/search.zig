@@ -60,13 +60,19 @@ pub fn Search(comptime T: type) type {
         map: hash.SpatialMap,
         entries: std.ArrayList(hash.Entry),
 
-        erase_empty_cells: bool = false,
+        erase_empty_cells: bool,
         requires_refresh: bool = false,
 
         /// Creates a new neighborhood searcher.
         ///
         /// Asserts that the radius is strictly positive.
-        pub fn init(allocator: std.mem.Allocator, radius: T) !Self {
+        pub fn init(
+            allocator: std.mem.Allocator,
+            radius: T,
+            comptime options: struct {
+                erase_empty_cells: bool = false,
+            },
+        ) !Self {
             std.debug.assert(radius > 0.0);
             var self = Self{
                 .allocator = allocator,
@@ -80,6 +86,8 @@ pub fn Search(comptime T: type) type {
                 .radius2 = radius * radius,
                 .map = .init(allocator),
                 .entries = try .initCapacity(allocator, initial_num_neighbors),
+
+                .erase_empty_cells = options.erase_empty_cells,
             };
 
             try self.refresh(null);
@@ -92,6 +100,10 @@ pub fn Search(comptime T: type) type {
         ///
         /// Asserts that the radius is strictly positive.
         fn refresh(self: *Self, new_radius: ?T) !void {
+            for (self.entries.items) |*entry| {
+                entry.deinit();
+            }
+
             self.entries.clearRetainingCapacity();
             self.map.clearRetainingCapacity();
 
@@ -105,12 +117,14 @@ pub fn Search(comptime T: type) type {
             defer temp_keys.deinit(self.allocator);
 
             for (self.point_sets.items, 0..) |*point_set, j| {
-                const old_size = point_set.locks.items.len;
+                for (point_set.locks.items) |*l| {
+                    l.deinit(self.allocator);
+                    l.* = .empty;
+                }
                 try point_set.locks.resize(self.allocator, self.point_sets.items.len);
-                if (old_size < point_set.locks.items.len) {
-                    for (point_set.locks.items) |*l| {
-                        l.* = .empty;
-                    }
+
+                for (point_set.locks.items) |*l| {
+                    l.* = .empty;
                 }
 
                 for (point_set.locks.items) |*lock| {
@@ -263,6 +277,7 @@ pub fn Search(comptime T: type) type {
             ));
 
             try self.activation_table.addPointSet(set_flags);
+            self.requires_refresh = true;
             std.debug.assert(self.point_sets.items.len >= 1);
             return self.point_sets.items.len - 1;
         }
@@ -880,13 +895,13 @@ const expectEqualSlices = testing.expectEqualSlices;
 
 test "Search initialization and destruction" {
     const allocator = testing.allocator;
-    var search = try Search(f32).init(allocator, 3.14);
+    var search = try Search(f32).init(allocator, 3.14, .{});
     defer search.deinit();
 }
 
 test "Cell index probing" {
     const allocator = testing.allocator;
-    var search = try Search(f32).init(allocator, 3.14);
+    var search = try Search(f32).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try expectEqualSlices(i32, &.{ -657740481, 153456480, 636497664 }, &search.cellIndex(&.{ -2065305262.0, 481853423.0, 1998602736.0 }).key);
@@ -903,7 +918,7 @@ test "Cell index probing" {
 
 test "Search basic validity" {
     const allocator = testing.allocator;
-    var search = try Search(f32).init(allocator, 3.14);
+    var search = try Search(f32).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try search.zort();
@@ -915,7 +930,7 @@ test "Search basic usage" {
 
     const radius: f32 = 1.0;
     const S = Search(f32);
-    var search = try S.init(allocator, radius);
+    var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
     // Set 0: Static, 2 points
@@ -938,6 +953,7 @@ test "Search basic usage" {
         false,
         .{ .search_neighbors = true, .find_neighbors = false },
     );
+    try search.updatePointSets();
     try search.resizePointSet(p0_id, p0_data[0..], 2);
     const p1_id = try search.addPointSet(
         p1_data_buf.items,
@@ -945,6 +961,7 @@ test "Search basic usage" {
         true,
         .{ .search_neighbors = true, .find_neighbors = true },
     );
+    try search.updatePointSets();
     try search.resizePointSet(p1_id, p1_data_buf.items, 2);
 
     try expectEqual(0, p0_id);
@@ -1033,7 +1050,7 @@ test "Search neighbor queries" {
 
     const radius: f32 = 1.0;
     const S = Search(f32);
-    var search = try S.init(allocator, radius);
+    var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
     var p0_data: [6]f32 = .{ 0.0, 0.0, 0.0, 5.0, 5.0, 5.0 };
@@ -1047,6 +1064,7 @@ test "Search neighbor queries" {
         false,
         .{ .search_neighbors = true, .find_neighbors = false },
     );
+    try search.updatePointSets();
     try search.resizePointSet(p0_id, p0_data[0..], 2);
     const p1_id = try search.addPointSet(
         p1_data_buf.items,
@@ -1054,6 +1072,7 @@ test "Search neighbor queries" {
         true,
         .{ .search_neighbors = true, .find_neighbors = true },
     );
+    try search.updatePointSets();
     try search.resizePointSet(p1_id, p1_data_buf.items, 2);
 
     search.setActive(.{ .neighbor = .{ .idx1 = 0, .idx2 = 1, .active = false } });

@@ -61,17 +61,20 @@ pub fn build(b: *std.Build) !void {
 
     // Add necessary steps and remaining artifacts
     const test_step = b.step("test", "Run tests");
+    const stone_tests = addToTestStep(b, stone.root_module, test_step);
+    const core_tests = addToTestStep(b, core, test_step);
+
+    const compiles = addCoreExamples(b, core, target, optimize) ++ .{
+        stone_tests, core_tests,
+    };
+
     addGraphicsDeps(b, stone, target);
-    const examples = addCoreExamples(b, core, target, optimize);
-    try addShaders(b, stone, test_step, examples, &.{
+    try addShaders(b, stone, test_step, compiles, &.{
         .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
     });
     addUtils(b);
     addRunStep(b, stone);
-
-    addToTestStep(b, stone.root_module, test_step);
-    addToTestStep(b, core, test_step);
 }
 
 /// Adds all graphics-related dependencies.
@@ -371,12 +374,13 @@ fn addCoreExamples(
     };
 }
 
-fn addToTestStep(b: *std.Build, module: *std.Build.Module, step: *std.Build.Step) void {
+fn addToTestStep(b: *std.Build, module: *std.Build.Module, step: *std.Build.Step) *std.Build.Step.Compile {
     const tests = b.addTest(.{
         .root_module = module,
     });
     const run_tests = b.addRunArtifact(tests);
     step.dependOn(&run_tests.step);
+    return tests;
 }
 
 fn addUtils(b: *std.Build) void {

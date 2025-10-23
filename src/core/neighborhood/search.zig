@@ -15,6 +15,8 @@ pub const initial_num_neighbors: usize = 50;
 /// to ensure the invalidation of element pointers doesn't break data structures.
 /// Not doing this is a sure-fire way to cause SIGSEGV.
 ///
+/// In most cases, you'll like want to set `@setFloatMode(.optimized)`
+///
 /// T must be a float, and this is confirmed at comptime.
 pub fn Search(comptime T: type, comptime single_threaded: bool) type {
     switch (@typeInfo(T)) {

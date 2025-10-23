@@ -218,12 +218,7 @@ const Example = struct {
 };
 
 pub fn main() !void {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    // const allocator = gpa.allocator();
-    // defer {
-    //     const c = gpa.deinit();
-    //     if (c == .leak) @panic("I leaked :(");
-    // }
+    @setFloatMode(.optimized);
     const allocator = std.heap.c_allocator;
 
     var buffer: [1024]u8 = undefined;

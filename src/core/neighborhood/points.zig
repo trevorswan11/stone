@@ -15,24 +15,30 @@ pub const PointID = struct {
 };
 
 /// A multi-threading safety lock for a pool of operations.
-pub const SpinLock = struct {
-    locked: std.atomic.Value(bool) = .init(false),
+pub fn SpinLock(comptime single_threaded: bool) type {
+    return struct {
+        const Self = @This();
 
-    pub fn lock(self: *SpinLock) void {
-        while (true) {
-            if (!self.locked.swap(true, .acquire)) {
-                return;
+        locked: std.atomic.Value(bool) = .init(false),
+
+        pub fn lock(self: *Self) void {
+            if (comptime single_threaded) return;
+            while (true) {
+                if (!self.locked.swap(true, .seq_cst)) {
+                    return;
+                }
+
+                // On yield-supporting systems this will work
+                std.Thread.yield() catch continue;
             }
-
-            // On yield-supporting systems this will work
-            std.Thread.yield() catch continue;
         }
-    }
 
-    pub fn unlock(self: *SpinLock) void {
-        self.locked.store(false, .release);
-    }
-};
+        pub fn unlock(self: *Self) void {
+            if (comptime single_threaded) return;
+            self.locked.store(false, .seq_cst);
+        }
+    };
+}
 
 /// Creates a flat array of floats from a dynamic array of 3D positions.
 ///
@@ -57,7 +63,7 @@ pub fn flattenPositions(
 /// Almost entirely managed externally.
 ///
 /// T must be a float, and this is confirmed at comptime.
-pub fn PointSet(comptime T: type) type {
+pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
     switch (@typeInfo(T)) {
         .float => {},
         else => @compileError("T must be a known float type"),
@@ -66,12 +72,14 @@ pub fn PointSet(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        pub const Lock = SpinLock(single_threaded);
+
         pub const NeighborAccumulator = std.ArrayList(std.ArrayList(ValueType));
         pub const NeighborList = std.ArrayList(NeighborAccumulator);
 
         allocator: std.mem.Allocator,
 
-        position_data: []T,
+        position_data: []const [3]T,
         number_of_points: usize,
         dynamic: bool,
 
@@ -80,21 +88,22 @@ pub fn PointSet(comptime T: type) type {
         old_keys: std.ArrayList(hash.Key) = .empty,
 
         sort_table: std.ArrayList(ValueType) = .empty,
-        locks: std.ArrayList(std.ArrayList(SpinLock)) = .empty,
+        locks: std.ArrayList(std.ArrayList(Lock)) = .empty,
 
         /// Creates a PointSet with the allocator and all fields uninitialized.
         ///
-        /// The provided position data is managed internally.
+        /// The provided position data is not internally managed and should not
+        /// be freed until the associated set is no longer useful.
         pub fn init(
             allocator: std.mem.Allocator,
-            position_data: []const T,
+            position_data: []const [3]T,
             total_points: usize,
             dynamic: bool,
         ) !Self {
             var self = Self{
                 .allocator = allocator,
 
-                .position_data = try allocator.dupe(T, position_data),
+                .position_data = position_data,
                 .number_of_points = total_points,
                 .dynamic = dynamic,
 
@@ -113,11 +122,10 @@ pub fn PointSet(comptime T: type) type {
         /// Resizes the point set, obviously.
         pub fn resize(
             self: *Self,
-            position_data: []const T,
+            position_data: []const [3]T,
             total_points: usize,
         ) !void {
-            self.allocator.free(self.position_data);
-            self.position_data = try self.allocator.dupe(T, position_data);
+            self.position_data = position_data;
             self.number_of_points = total_points;
 
             try self.keys.resize(self.allocator, total_points);
@@ -148,8 +156,6 @@ pub fn PointSet(comptime T: type) type {
         /// Deinitializes all allocated data.
         pub fn deinit(self: *Self) void {
             defer {
-                self.allocator.free(self.position_data);
-
                 self.neighbors.deinit(self.allocator);
                 self.keys.deinit(self.allocator);
                 self.old_keys.deinit(self.allocator);
@@ -220,13 +226,12 @@ pub fn PointSet(comptime T: type) type {
             }
         }
 
-        /// Retrieves the 3 data points at offset i in the internal position data.
+        /// Retrieves the data point at index idx in the position data.
         ///
-        /// The offset should be a multiple of three, but this is not asserted.
-        /// Asserts that the upper found of the requested index is in range (valid z).
-        pub fn point(self: *const Self, offset: usize) *const [3]T {
-            std.debug.assert(3 * offset + 3 <= self.position_data.len);
-            return self.position_data[3 * offset .. 3 * offset + 3][0..3];
+        /// Asserts boundedness.
+        pub fn point(self: *const Self, idx: usize) *const [3]T {
+            std.debug.assert(idx < self.position_data.len);
+            return &self.position_data[idx];
         }
     };
 }
@@ -263,9 +268,9 @@ test "Position data flattening" {
 
 test "PointSet initialization and destruction" {
     const allocator = testing.allocator;
-    var ps = try PointSet(f32).init(
+    var ps = try PointSet(f32, true).init(
         allocator,
-        &.{ 1.0, 2.0, 3.0 },
+        &.{[3]f32{ 1.0, 2.0, 3.0 }},
         1,
         true,
     );
@@ -275,20 +280,20 @@ test "PointSet initialization and destruction" {
 test "PointSet basic init/deinit and sort" {
     const allocator = testing.allocator;
 
-    var points = [_]f32{
-        0.0, 0.1, 0.2,
-        1.0, 1.1, 1.2,
-        2.0, 2.1, 2.2,
+    var points = [_][3]f32{
+        .{ 0.0, 0.1, 0.2 },
+        .{ 1.0, 1.1, 1.2 },
+        .{ 2.0, 2.1, 2.2 },
     };
 
-    var set = try PointSet(f32).init(allocator, &points, 3, false);
+    var set = try PointSet(f32, true).init(allocator, &points, 3, false);
     defer set.deinit();
 
     try expectEqual(3, set.number_of_points);
     try expect(!set.dynamic);
 
     const p1 = set.point(1);
-    try expectEqualSlices(f32, p1, &[_]f32{ 1.0, 1.1, 1.2 });
+    try expectEqualSlices(f32, p1, ([_]f32{ 1.0, 1.1, 1.2 })[0..3]);
     try set.sort_table.appendSlice(allocator, &[_]ValueType{ 2, 1, 0 });
 
     var data = [_]ValueType{ 10, 20, 30 };
@@ -299,8 +304,8 @@ test "PointSet basic init/deinit and sort" {
 test "PointSet neighborCount and fetchNeighbor" {
     const allocator = testing.allocator;
 
-    var points = [_]f32{ 0, 0, 0, 1, 1, 1 };
-    var set = try PointSet(f32).init(allocator, &points, 2, true);
+    var points = [_][3]f32{ .{ 0, 0, 0 }, .{ 1, 1, 1 } };
+    var set = try PointSet(f32, true).init(allocator, &points, 2, true);
     defer set.deinit();
 
     try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(ValueType)).initCapacity(allocator, 2));
@@ -319,8 +324,8 @@ test "PointSet neighborCount and fetchNeighbor" {
 test "PointSet fetchNeighborList returns copy" {
     const allocator = testing.allocator;
 
-    var points = [_]f32{ 0, 0, 0, 1, 1, 1 };
-    var set = try PointSet(f32).init(allocator, &points, 2, true);
+    var points = [_][3]f32{ .{ 0, 0, 0 }, .{ 1, 1, 1 } };
+    var set = try PointSet(f32, true).init(allocator, &points, 2, true);
     defer set.deinit();
 
     try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(ValueType)).initCapacity(allocator, 2));
@@ -339,8 +344,8 @@ test "PointSet fetchNeighborList returns copy" {
 test "PointSet sort errors when table missing" {
     const allocator = testing.allocator;
 
-    var points = [_]f32{ 0, 0, 0, 1, 1, 1 };
-    var set = try PointSet(f32).init(allocator, &points, 2, true);
+    var points = [_][3]f32{ .{ 0, 0, 0 }, .{ 1, 1, 1 } };
+    var set = try PointSet(f32, true).init(allocator, &points, 2, true);
     defer set.deinit();
 
     var arr = [_]ValueType{ 1, 2 };

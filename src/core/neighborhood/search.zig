@@ -10,8 +10,13 @@ pub const initial_num_neighbors: usize = 50;
 
 /// Creates a neighborhood searcher with the given floating point type.
 ///
+/// In most implementations, heap allocated sets of positions would be desirable.
+/// When using a heap allocated set of data, it is important to call resizePointSet
+/// to ensure the invalidation of element pointers doesn't break data structures.
+/// Not doing this is a sure-fire way to cause SIGSEGV.
+///
 /// T must be a float, and this is confirmed at comptime.
-pub fn Search(comptime T: type) type {
+pub fn Search(comptime T: type, comptime single_threaded: bool) type {
     switch (@typeInfo(T)) {
         .float => {},
         else => @compileError("T must be a known float type"),
@@ -20,7 +25,7 @@ pub fn Search(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        pub const PointSet = points.PointSet(T);
+        pub const PointSet = points.PointSet(T, single_threaded);
 
         pub const QueryVariant = union(enum) {
             /// Performs the actual query.
@@ -187,7 +192,7 @@ pub fn Search(comptime T: type) type {
         pub fn resizePointSet(
             self: *Self,
             point_set_idx: usize,
-            new_positions: []const T,
+            new_positions: []const [3]T,
             total_points: usize,
         ) !void {
             if (self.requires_refresh) {
@@ -264,7 +269,7 @@ pub fn Search(comptime T: type) type {
         /// to the newly created point set.
         pub fn addPointSet(
             self: *Self,
-            point_positions: []const T,
+            point_positions: []const [3]T,
             total_points: usize,
             dynamic: bool,
             set_flags: hash.ActivationTable.SetFlags,
@@ -378,7 +383,7 @@ pub fn Search(comptime T: type) type {
                     defer visited.deinit(self.allocator);
                     for (visited.items) |*arr| arr.* = @splat(false);
 
-                    var entry_locks = std.ArrayList(points.SpinLock).empty;
+                    var entry_locks = std.ArrayList(PointSet.Lock).empty;
                     defer entry_locks.deinit(self.allocator);
                     try entry_locks.resize(self.allocator, self.entries.items.len);
                     for (entry_locks.items) |*sl| sl.* = .{};
@@ -895,13 +900,13 @@ const expectEqualSlices = testing.expectEqualSlices;
 
 test "Search initialization and destruction" {
     const allocator = testing.allocator;
-    var search = try Search(f32).init(allocator, 3.14, .{});
+    var search = try Search(f32, true).init(allocator, 3.14, .{});
     defer search.deinit();
 }
 
 test "Cell index probing" {
     const allocator = testing.allocator;
-    var search = try Search(f32).init(allocator, 3.14, .{});
+    var search = try Search(f32, true).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try expectEqualSlices(i32, &.{ -657740481, 153456480, 636497664 }, &search.cellIndex(&.{ -2065305262.0, 481853423.0, 1998602736.0 }).key);
@@ -918,7 +923,7 @@ test "Cell index probing" {
 
 test "Search basic validity" {
     const allocator = testing.allocator;
-    var search = try Search(f32).init(allocator, 3.14, .{});
+    var search = try Search(f32, true).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try search.zort();
@@ -929,22 +934,22 @@ test "Search basic usage" {
     const allocator = testing.allocator;
 
     const radius: f32 = 1.0;
-    const S = Search(f32);
+    const S = Search(f32, true);
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
     // Set 0: Static, 2 points
-    var p0_data: [6]f32 = .{
-        0.0, 0.0, 0.0, // p0_0 @ cell (0,0,0)
-        5.0, 5.0, 5.0, // p0_1 @ cell (5,5,5)
+    var p0_data = [_][3]f32{
+        .{ 0.0, 0.0, 0.0 }, // p0_0 @ cell (0,0,0)
+        .{ 5.0, 5.0, 5.0 }, // p0_1 @ cell (5,5,5)
     };
 
     // Set 1: Dynamic, 2 points
-    var p1_data_buf = try std.ArrayList(f32).initCapacity(allocator, 12);
+    var p1_data_buf = try std.ArrayList([3]f32).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
     try p1_data_buf.appendSlice(allocator, &.{
-        0.5, 0.0, 0.0, // p1_0 @ cell (0,0,0)
-        10.0, 10.0, 10.0, // p1_1 @ cell (10,10,10)
+        .{ 0.5, 0.0, 0.0 }, // p1_0 @ cell (0,0,0)
+        .{ 10.0, 10.0, 10.0 }, // p1_1 @ cell (10,10,10)
     });
 
     const p0_id = try search.addPointSet(
@@ -1009,18 +1014,14 @@ test "Search basic usage" {
     search.erase_empty_cells = true;
 
     // Move p1_0 (idx 0) from (0.5, 0, 0) -> (0.5, 2.0, 0)
-    p1_data_buf.items[1] = 2.0;
-    search.point_sets.items[p1_id].position_data[1] = 2.0;
+    p1_data_buf.items[0][1] = 2.0;
     const new_key_p1_0 = search.cellIndex(search.point_sets.items[p1_id].point(0));
     try expectEqualSlices(i32, &.{ 0, 2, 0 }, &new_key_p1_0.key);
 
     // Move p1_1 (idx 1) from (10, 10, 10) -> (5.1, 5.0, 5.0)
-    p1_data_buf.items[3] = 5.1;
-    search.point_sets.items[p1_id].position_data[3] = 5.1;
-    p1_data_buf.items[4] = 5.0;
-    search.point_sets.items[p1_id].position_data[4] = 5.0;
-    p1_data_buf.items[5] = 5.0;
-    search.point_sets.items[p1_id].position_data[5] = 5.0;
+    p1_data_buf.items[1][0] = 5.1;
+    p1_data_buf.items[1][1] = 5.0;
+    p1_data_buf.items[1][2] = 5.0;
     const new_key_p1_1 = search.cellIndex(search.point_sets.items[p1_id].point(1));
     try expectEqualSlices(i32, &.{ 5, 5, 5 }, &new_key_p1_1.key);
 
@@ -1049,14 +1050,17 @@ test "Search neighbor queries" {
     const allocator = testing.allocator;
 
     const radius: f32 = 1.0;
-    const S = Search(f32);
+    const S = Search(f32, true);
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
-    var p0_data: [6]f32 = .{ 0.0, 0.0, 0.0, 5.0, 5.0, 5.0 };
-    var p1_data_buf = try std.ArrayList(f32).initCapacity(allocator, 12);
+    var p0_data = [_][3]f32{ .{ 0.0, 0.0, 0.0 }, .{ 5.0, 5.0, 5.0 } };
+    var p1_data_buf = try std.ArrayList([3]f32).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
-    try p1_data_buf.appendSlice(allocator, &.{ 0.5, 0.0, 0.0, 10.0, 10.0, 10.0 });
+    try p1_data_buf.appendSlice(allocator, &.{
+        .{ 0.5, 0.0, 0.0 },
+        .{ 10.0, 10.0, 10.0 },
+    });
 
     const p0_id = try search.addPointSet(
         p0_data[0..],
@@ -1081,10 +1085,10 @@ test "Search neighbor queries" {
     search.erase_empty_cells = true;
 
     // Move points
-    search.point_sets.items[p1_id].position_data[1] = 2.0;
-    search.point_sets.items[p1_id].position_data[3] = 5.1;
-    search.point_sets.items[p1_id].position_data[4] = 5.0;
-    search.point_sets.items[p1_id].position_data[5] = 5.0;
+    p1_data_buf.items[0][1] = 2.0;
+    p1_data_buf.items[1][0] = 5.1;
+    p1_data_buf.items[1][1] = 5.0;
+    p1_data_buf.items[1][2] = 5.0;
 
     // Run search to update internal state (.actual)
     try search.findNeighbors(.{ .actual = .{ .points_changed = true } });

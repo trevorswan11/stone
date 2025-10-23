@@ -11,7 +11,8 @@ const r_omega2 = r_omega * r_omega;
 const radius: Real = 2.0 * (2.0 * r_omega / (n_float - 1.0));
 const velocity_damp: Real = 0.005;
 
-const Search = core.search.Search(Real);
+const single_threaded = true;
+const Search = core.search.Search(Real, single_threaded);
 
 fn generatePositions() struct {
     positions: []const [3]Real,
@@ -102,22 +103,6 @@ const Example = struct {
         @memcpy(self.pos[0..], positions);
         std.Random.shuffle(self.prng.random(), [3]Real, &self.pos);
 
-        // Prepare the searcher
-        _ = try self.search.addPointSet(
-            core.points.flattenPositions(Real, &self.pos),
-            self.pos.len,
-            true,
-            .{},
-        );
-        _ = try self.search.addPointSet(
-            core.points.flattenPositions(Real, &self.pos),
-            self.pos.len,
-            true,
-            .{},
-        );
-
-        try self.search.findNeighbors(.{ .actual = .{} });
-        try self.search.updatePointSets();
         return self;
     }
 
@@ -152,6 +137,7 @@ const Example = struct {
             point[1] += velocity_damp * v[1];
             point[2] += velocity_damp * v[2];
         }
+        self.search.requires_refresh = true;
     }
 
     pub fn averageNeighbors(self: *const Example) Real {
@@ -232,12 +218,13 @@ const Example = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    const allocator = gpa.allocator();
-    defer {
-        const c = gpa.deinit();
-        if (c == .leak) @panic("I leaked :(");
-    }
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    // const allocator = gpa.allocator();
+    // defer {
+    //     const c = gpa.deinit();
+    //     if (c == .leak) @panic("I leaked :(");
+    // }
+    const allocator = std.heap.c_allocator;
 
     var buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&buffer);
@@ -245,6 +232,23 @@ pub fn main() !void {
 
     var example = try Example.init(allocator, stdout);
     defer example.deinit();
+
+    // Add the point sets after init so that the position pointer is stable
+    _ = try example.search.addPointSet(
+        &example.pos,
+        example.pos.len,
+        true,
+        .{},
+    );
+    _ = try example.search.addPointSet(
+        &example.pos,
+        example.pos.len,
+        true,
+        .{},
+    );
+
+    try example.search.findNeighbors(.{ .actual = .{} });
+    try example.search.updatePointSets();
 
     // Specific neighbor retrieval
     var neighbors1: Search.PointSet.NeighborAccumulator = .empty;

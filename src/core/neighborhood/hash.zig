@@ -51,48 +51,51 @@ pub const Key = struct {
 };
 
 /// The hash entry for a set of 3D particles.
-pub const Entry = struct {
-    allocator: std.mem.Allocator,
+pub fn Entry(comptime initial_num_indices: usize) type {
+    return struct {
+        const Self = @This();
 
-    searching_points: usize,
-    indices: std.ArrayList(points.PointID),
+        allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator) !Entry {
-        return .{
-            .allocator = allocator,
-            .searching_points = 0,
-            .indices = try .initCapacity(allocator, search.initial_num_indices),
-        };
-    }
+        searching_points: usize,
+        indices: std.ArrayList(points.PointID),
 
-    pub fn deinit(self: *Entry) void {
-        self.indices.deinit(self.allocator);
-    }
-
-    /// Adds an id to the internal index tracker.
-    ///
-    /// Duplicates are allowed, and entries are not ordered.
-    pub fn add(self: *Entry, id: points.PointID) !void {
-        try self.indices.append(self.allocator, id);
-    }
-
-    /// Removes an id to the internal index tracker.
-    ///
-    /// This operation is a no-op if the list does not contain the item or is empty.
-    ///
-    /// Duplicates are handled by removing the first found as entries are not ordered.
-    pub fn remove(self: *Entry, id: points.PointID) void {
-        var index: ?usize = null;
-        for (self.indices.items, 0..) |item, i| {
-            if (item.eql(id)) {
-                index = i;
-            }
+        pub fn init(allocator: std.mem.Allocator) !Self {
+            return .{
+                .allocator = allocator,
+                .searching_points = 0,
+                .indices = try .initCapacity(allocator, initial_num_indices),
+            };
         }
 
-        _ = self.indices.swapRemove(index orelse return);
-    }
-};
+        pub fn deinit(self: *Self) void {
+            self.indices.deinit(self.allocator);
+        }
 
+        /// Adds an id to the internal index tracker.
+        ///
+        /// Duplicates are allowed, and entries are not ordered.
+        pub fn add(self: *Self, id: points.PointID) !void {
+            try self.indices.append(self.allocator, id);
+        }
+
+        /// Removes an id to the internal index tracker.
+        ///
+        /// This operation is a no-op if the list does not contain the item or is empty.
+        ///
+        /// Duplicates are handled by removing the first found as entries are not ordered.
+        pub fn remove(self: *Self, id: points.PointID) void {
+            var index: ?usize = null;
+            for (self.indices.items, 0..) |item, i| {
+                if (item.eql(id)) {
+                    index = i;
+                }
+            }
+
+            _ = self.indices.swapRemove(index orelse return);
+        }
+    };
+}
 /// A dynamic table of activations, akin to an adjacency matrix.
 ///
 /// The internal table is guaranteed to be of square size.
@@ -273,20 +276,19 @@ test "Key hashing" {
 
 test "Entry init and deinit" {
     const allocator = testing.allocator;
-    var entry = try Entry.init(allocator);
+    var entry = try Entry(50).init(allocator);
     defer entry.deinit();
 
     try expectEqual(allocator, entry.allocator);
     try expectEqual(0, entry.searching_points);
     try expectEqual(0, entry.indices.items.len);
-    try expectEqual(search.initial_num_indices, entry.indices.capacity);
 }
 
 test "Entry operations" {
     const allocator = testing.allocator;
 
     // Add operations
-    var entry = try Entry.init(allocator);
+    var entry = try Entry(50).init(allocator);
 
     try entry.add(.{ .id = 10, .set_id = 0 });
     try expectEqual(1, entry.indices.items.len);
@@ -305,7 +307,7 @@ test "Entry operations" {
 
     // Remove operations (no duplicates)
     entry.deinit();
-    entry = try Entry.init(allocator);
+    entry = try Entry(50).init(allocator);
 
     entry.remove(.{ .id = 10, .set_id = 0 });
     try expectEqual(0, entry.indices.items.len);
@@ -339,7 +341,7 @@ test "Entry operations" {
 
     // Remove operations (with duplicates)
     entry.deinit();
-    entry = try Entry.init(allocator);
+    entry = try Entry(50).init(allocator);
     defer entry.deinit();
 
     try entry.add(.{ .id = 10, .set_id = 0 });

@@ -11,8 +11,8 @@ const r_omega2 = r_omega * r_omega;
 const radius: Real = 2.0 * (2.0 * r_omega / (n_float - 1.0));
 const velocity_damp: Real = 0.005;
 
-const single_threaded = true;
-const Search = core.search.Search(Real, single_threaded);
+const num_threads = 4;
+const Search = core.search.Search(Real, .{ .threadedness = .{ .multithreaded = num_threads } });
 
 fn generatePositions() struct {
     positions: []const [3]Real,
@@ -89,6 +89,7 @@ const Example = struct {
     prng: std.Random.DefaultPrng,
     writer: *std.Io.Writer,
     pos: [positions.len][3]f32 = undefined,
+    workers: [num_threads]std.Thread = undefined,
 
     search: Search,
 
@@ -129,14 +130,31 @@ const Example = struct {
         };
     }
 
-    pub fn advect(self: *Example) void {
-        // TODO: Parallelize
-        for (&self.pos) |*point| {
-            const v = enrightVelocityField(point);
-            point[0] += velocity_damp * v[0];
-            point[1] += velocity_damp * v[1];
-            point[2] += velocity_damp * v[2];
-        }
+    pub fn advect(self: *Example) !void {
+        const chunks = core.ranges.chunk([3]Real, &self.pos, num_threads);
+        const context = .{};
+
+        try core.parallel_loop.@"for"(
+            [3]Real,
+            &self.pos,
+            num_threads,
+            chunks,
+            &self.workers,
+            context,
+            struct {
+                pub fn advectChunk(ctx: @TypeOf(context), slice: [][3]Real, thread_num: usize) !void {
+                    _ = ctx;
+                    _ = thread_num;
+                    for (slice) |*point| {
+                        const v = enrightVelocityField(point);
+                        point[0] += velocity_damp * v[0];
+                        point[1] += velocity_damp * v[1];
+                        point[2] += velocity_damp * v[2];
+                    }
+                }
+            }.advectChunk,
+            .{},
+        );
         self.search.requires_refresh = true;
     }
 
@@ -191,7 +209,9 @@ const Example = struct {
         for (self.search.point_sets.items) |*point_set| {
             try point_set.sort([3]Real, &self.pos);
         }
+        std.debug.print("Hello!\n", .{});
         try self.search.findNeighbors(.{ .actual = .{} });
+        std.debug.print("Goodbye!\n", .{});
         try self.writer.print(
             "Average index distance after z-sort    = {d}\n\n",
             .{self.averageDistance()},
@@ -201,7 +221,7 @@ const Example = struct {
         // Moving
         try self.writer.print("Moving Points:\n", .{});
         for (0..n_enright_rights) |i| {
-            self.advect();
+            try self.advect();
 
             const start = std.time.nanoTimestamp();
             try self.search.findNeighbors(.{ .actual = .{} });
@@ -219,7 +239,7 @@ const Example = struct {
 
 pub fn main() !void {
     @setFloatMode(.optimized);
-    const allocator = std.heap.c_allocator;
+    const allocator = std.heap.smp_allocator;
 
     var buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&buffer);

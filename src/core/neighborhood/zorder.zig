@@ -2,6 +2,7 @@ const std = @import("std");
 
 const points = @import("points.zig");
 const hash = @import("hash.zig");
+const ranges = @import("../threading/ranges.zig");
 
 /// Bitwise Z-order encoding for a 3D position using pre-shifted LUTs.
 ///
@@ -10,7 +11,7 @@ pub fn zencode(x: points.ValueType, y: points.ValueType, z: points.ValueType) u6
     var answer: u64 = 0;
     const x_idx: usize, const y_idx: usize, const z_idx: usize = .{ x, y, z };
 
-    const indices = comptime decreasing(points.ValueType);
+    const indices = comptime ranges.decreasing(usize, @sizeOf(points.ValueType), 0);
     inline for (indices) |i| {
         const shift: usize = comptime (i - 1) * 8;
         const x_encode = lut[x_offset + ((x_idx >> comptime @truncate(shift % wrapped_bits)) & eight_bit_mask)];
@@ -28,25 +29,6 @@ pub fn zencodeKey(key: hash.Key) u64 {
     const y: points.ValueType = @intCast(@as(i64, @intCast(key.key[1])) - min);
     const z: points.ValueType = @intCast(@as(i64, @intCast(key.key[2])) - min);
     return zencode(x, y, z);
-}
-
-/// Returns a monotonically decreasing array of [@sizeOf(T)..0].
-///
-/// Asserts that T is a known integer type.
-fn decreasing(comptime T: type) [@sizeOf(T)]usize {
-    return switch (@typeInfo(T)) {
-        .int => {
-            const size = @sizeOf(T);
-            var result: [size]usize = undefined;
-            var i: usize = size;
-            while (i > 0) : (i -= 1) {
-                result[size - i] = i;
-            }
-
-            return result;
-        },
-        else => @compileError("T must be a known integer type"),
-    };
 }
 
 const eight_bit_mask: usize = 0x000000FF;
@@ -161,14 +143,6 @@ const lut: [256 * 3]points.ValueType = .{
 
 const testing = std.testing;
 const expectEqual = testing.expectEqual;
-
-test "Decreasing array generator" {
-    const expected = [_]usize{ 4, 3, 2, 1 };
-    const actual = decreasing(u32);
-    for (expected, actual) |e, a| {
-        try expectEqual(e, a);
-    }
-}
 
 test "Z-Order encoding" {
     // Verified using https://github.com/Forceflow/libmorton

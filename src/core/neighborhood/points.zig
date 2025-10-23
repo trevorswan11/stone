@@ -24,7 +24,7 @@ pub fn SpinLock(comptime single_threaded: bool) type {
         pub fn lock(self: *Self) void {
             if (comptime single_threaded) return;
             while (true) {
-                if (!self.locked.swap(true, .seq_cst)) {
+                if (!self.locked.swap(true, .acq_rel)) {
                     return;
                 }
 
@@ -35,7 +35,7 @@ pub fn SpinLock(comptime single_threaded: bool) type {
 
         pub fn unlock(self: *Self) void {
             if (comptime single_threaded) return;
-            self.locked.store(false, .seq_cst);
+            self.locked.store(false, .release);
         }
     };
 }

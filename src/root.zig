@@ -6,6 +6,9 @@ pub const points = @import("core/neighborhood/points.zig");
 pub const search = @import("core/neighborhood/search.zig");
 pub const zorder = @import("core/neighborhood/zorder.zig");
 
+const vec = @import("core/math/vec.zig");
+pub const Vector = vec.Vector;
+
 test {
     _ = @import("core/threading/parallel_loop.zig");
 
@@ -13,4 +16,6 @@ test {
     _ = @import("core/neighborhood/points.zig");
     _ = @import("core/neighborhood/search.zig");
     _ = @import("core/neighborhood/zorder.zig");
+
+    _ = @import("core/math/vec.zig");
 }

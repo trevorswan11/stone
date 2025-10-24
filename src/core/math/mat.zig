@@ -60,20 +60,31 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
             return .{ .mat = out };
         }
 
-        /// Returns the flattened element index into the matrix.
-        pub fn index(row: usize, col: usize) usize {
+        /// Returns the flattened element index from the 2D index.
+        pub fn indexFrom(row: usize, col: usize) usize {
             std.debug.assert(row < m);
             std.debug.assert(col < n);
             return row * n + col;
         }
 
-        /// Provides mutable element index into the matrix.
-        pub fn element(self: *Self, idx: usize) *T {
-            std.debug.assert(idx < (m * n));
-
+        /// Returns the {row, col} indices from the flat index.
+        pub fn dimsFrom(idx: usize) struct { usize, usize } {
             const row: usize = @divFloor(idx, n);
             const col = idx % n;
+            return .{ row, col };
+        }
 
+        /// Provides immutable element index into the matrix.
+        pub fn at(self: *const Self, idx: usize) T {
+            std.debug.assert(idx < self.dims.numel);
+            const row, const col = dimsFrom(idx);
+            return self.mat[row].vec[col];
+        }
+
+        /// Provides mutable element index into the matrix.
+        pub fn ptrAt(self: *Self, idx: usize) *T {
+            std.debug.assert(idx < self.dims.numel);
+            const row, const col = dimsFrom(idx);
             return &self.mat[row].vec[col];
         }
     };
@@ -142,7 +153,7 @@ test "Matrix initialization and scalar multiplication" {
         for (0..7) |col| {
             try expectEqual(
                 init_vals67[idx],
-                actual_67.element(Mat67.index(row, col)).*,
+                actual_67.at(Mat67.indexFrom(row, col)),
             );
             idx += 1;
         }
@@ -174,12 +185,12 @@ test "Matrix initialization and scalar multiplication" {
     try expectEqualSlices(Mat76.VecType, &expected_mat76, &actual_76.mat);
 
     for (init_vals76, 0..) |val, i| {
-        try expectEqual(val, actual_76.element(i).*);
+        try expectEqual(val, actual_76.ptrAt(i).*);
     }
 
     init_vals76[9] = -200.0;
-    actual_76.element(9).* = -200.0;
+    actual_76.ptrAt(9).* = -200.0;
     for (init_vals76, 0..) |val, i| {
-        try expectEqual(val, actual_76.element(i).*);
+        try expectEqual(val, actual_76.ptrAt(i).*);
     }
 }

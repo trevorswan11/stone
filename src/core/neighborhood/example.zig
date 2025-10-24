@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const core = @import("core");
 
 const n: usize = 30;
@@ -11,7 +12,8 @@ const r_omega2 = r_omega * r_omega;
 const radius: Real = 2.0 * (2.0 * r_omega / (n_float - 1.0));
 const velocity_damp: Real = 0.005;
 
-const num_threads = 4;
+const num_threads = if (builtin.single_threaded) 1 else 4;
+const single_threaded = num_threads == 1;
 const Search = core.search.Search(Real, .{ .threadedness = .{ .multithreaded = num_threads } });
 
 fn generatePositions() struct {
@@ -209,9 +211,7 @@ const Example = struct {
         for (self.search.point_sets.items) |*point_set| {
             try point_set.sort([3]Real, &self.pos);
         }
-        std.debug.print("Hello!\n", .{});
         try self.search.findNeighbors(.{ .actual = .{} });
-        std.debug.print("Goodbye!\n", .{});
         try self.writer.print(
             "Average index distance after z-sort    = {d}\n\n",
             .{self.averageDistance()},
@@ -239,7 +239,10 @@ const Example = struct {
 
 pub fn main() !void {
     @setFloatMode(.optimized);
-    const allocator = std.heap.smp_allocator;
+    const allocator = if (comptime single_threaded)
+        std.heap.c_allocator
+    else
+        std.heap.smp_allocator;
 
     var buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&buffer);
@@ -267,7 +270,12 @@ pub fn main() !void {
 
     // Specific neighbor retrieval
     var neighbors1: Search.PointSet.NeighborAccumulator = .empty;
-    defer neighbors1.deinit(allocator);
+    defer {
+        defer neighbors1.deinit(allocator);
+        for (neighbors1.items) |*nested| {
+            nested.deinit(allocator);
+        }
+    }
     try example.search.findNeighbors(.{ .single_point_from_set = .{
         .point_set_id = 0,
         .point_idx = 1,
@@ -275,7 +283,12 @@ pub fn main() !void {
     } });
 
     var neighbors2: Search.PointSet.NeighborAccumulator = .empty;
-    defer neighbors2.deinit(allocator);
+    defer {
+        defer neighbors2.deinit(allocator);
+        for (neighbors2.items) |*nested| {
+            nested.deinit(allocator);
+        }
+    }
     try example.search.findNeighbors(.{ .single_point_from_set = .{
         .point_set_id = 1,
         .point_idx = 2,

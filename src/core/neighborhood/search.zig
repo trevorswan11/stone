@@ -161,6 +161,7 @@ pub fn Search(comptime T: type, comptime config: struct {
 
                 for (point_set.locks.items) |*lock| {
                     try lock.resize(self.allocator, point_set.number_of_points);
+                    for (lock.items) |*sl| sl.* = .{};
                 }
 
                 for (0..point_set.number_of_points) |i| {
@@ -338,12 +339,33 @@ pub fn Search(comptime T: type, comptime config: struct {
                 .actual => {
                     // Refresh the neighbors list for each point set's points
                     for (self.point_sets.items, 0..) |*point_set, i| {
+                        const old_l1_len = point_set.neighbors.items.len;
                         try point_set.neighbors.resize(self.allocator, self.point_sets.items.len);
+
+                        if (self.point_sets.items.len > old_l1_len) {
+                            for (point_set.neighbors.items[old_l1_len..]) |*new_l2_item| {
+                                new_l2_item.* = .empty;
+                            }
+                        }
+
                         for (point_set.neighbors.items, 0..) |*neighbors, j| {
-                            neighbors.* = .empty;
-                            try neighbors.resize(self.allocator, point_set.number_of_points);
+                            const old_len = neighbors.items.len;
+                            const new_len = point_set.number_of_points;
+
+                            if (new_len < old_len) {
+                                for (neighbors.items[new_len..]) |*nested| {
+                                    nested.deinit(self.allocator);
+                                }
+                            }
+
+                            try neighbors.resize(self.allocator, new_len);
+                            if (new_len > old_len) {
+                                for (neighbors.items[old_len..]) |*nested| {
+                                    nested.* = .empty;
+                                }
+                            }
+
                             for (neighbors.items) |*nested| {
-                                nested.* = .empty;
                                 nested.clearRetainingCapacity();
                                 if (self.activation_table.isActive(i, j)) {
                                     try nested.ensureTotalCapacity(self.allocator, initial_num_neighbors);
@@ -407,19 +429,27 @@ pub fn Search(comptime T: type, comptime config: struct {
                                                     std.mem.swap(@TypeOf(pa), &p1, &p2);
                                                 }
 
-                                                search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].lock();
-                                                defer search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].unlock();
-
-                                                search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].lock();
-                                                defer search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].unlock();
-
                                                 if (search.activation_table.isActive(pa.set_id, pb.set_id)) {
+                                                    const acquired = search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].tryLock();
+                                                    defer {
+                                                        if (acquired) {
+                                                            search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].unlock();
+                                                        }
+                                                    }
+
                                                     try search.point_sets.items[pa.set_id].neighbors.items[pb.set_id].items[pa.id].append(
                                                         search.allocator,
                                                         pb.id,
                                                     );
                                                 }
                                                 if (search.activation_table.isActive(pb.set_id, pa.set_id)) {
+                                                    const acquired = search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].tryLock();
+                                                    defer {
+                                                        if (acquired) {
+                                                            search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].unlock();
+                                                        }
+                                                    }
+
                                                     try search.point_sets.items[pb.set_id].neighbors.items[pa.set_id].items[pb.id].append(
                                                         search.allocator,
                                                         pa.id,
@@ -567,7 +597,9 @@ pub fn Search(comptime T: type, comptime config: struct {
 
                     if (new_len < old_len) {
                         for (neighbors.items[new_len..]) |*nested| {
-                            nested.deinit(self.allocator);
+                            if (!std.meta.eql(nested.*, std.ArrayList(points.ValueType).empty)) {
+                                nested.deinit(self.allocator);
+                            }
                         }
                     }
 

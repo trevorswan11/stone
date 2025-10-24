@@ -347,6 +347,12 @@ fn addCoreExamples(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) struct { *std.Build.Step.Compile } {
+    const single_threaded = b.option(
+        bool,
+        "single-threaded",
+        "Run examples in single-threaded mode",
+    ) orelse false;
+
     // Neighborhood search demo
     const search_exe = b.addExecutable(.{
         .name = "neighbor",
@@ -358,6 +364,7 @@ fn addCoreExamples(
             .imports = &.{
                 .{ .name = "core", .module = core_module },
             },
+            .single_threaded = single_threaded,
         }),
         .use_llvm = true,
     });

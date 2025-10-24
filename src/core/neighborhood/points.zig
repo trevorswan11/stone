@@ -14,32 +14,6 @@ pub const PointID = struct {
     }
 };
 
-/// A multi-threading safety lock for a pool of operations.
-pub fn SpinLock(comptime single_threaded: bool) type {
-    return struct {
-        const Self = @This();
-
-        locked: std.atomic.Value(bool) = .init(false),
-
-        pub fn lock(self: *Self) void {
-            if (comptime single_threaded) return;
-            while (true) {
-                if (!self.locked.swap(true, .acq_rel)) {
-                    return;
-                }
-
-                // On yield-supporting systems this will work
-                std.Thread.yield() catch continue;
-            }
-        }
-
-        pub fn unlock(self: *Self) void {
-            if (comptime single_threaded) return;
-            self.locked.store(false, .release);
-        }
-    };
-}
-
 /// Creates a flat array of floats from a dynamic array of 3D positions.
 ///
 /// T must be a float, and this is confirmed at comptime.
@@ -72,7 +46,24 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
     return struct {
         const Self = @This();
 
-        pub const Lock = SpinLock(single_threaded);
+        pub const Lock =
+            if (single_threaded) struct {
+                div_zero_appeaser: u1 = 0,
+
+                /// No-op lock for single threaded builds.
+                pub fn lock(_: *@This()) void {
+                    return;
+                }
+
+                pub fn tryLock(_: *@This()) bool {
+                    return true;
+                }
+
+                /// No-op unlock for single threaded builds.
+                pub fn unlock(_: *@This()) void {
+                    return;
+                }
+            } else std.Thread.Mutex;
 
         pub const NeighborAccumulator = std.ArrayList(std.ArrayList(ValueType));
         pub const NeighborList = std.ArrayList(NeighborAccumulator);
@@ -107,7 +98,7 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
                 .number_of_points = total_points,
                 .dynamic = dynamic,
 
-                .neighbors = try .initCapacity(allocator, total_points),
+                .neighbors = .empty,
             };
 
             try self.keys.resize(allocator, total_points);
@@ -149,6 +140,11 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
             if (total_points > old_len) {
                 for (self.neighbors.items[old_len..]) |*neighbor_L2| {
                     neighbor_L2.* = .empty;
+                    try neighbor_L2.resize(self.allocator, 10);
+                    for (neighbor_L2.items) |*nested_L3| {
+                        nested_L3.* = .empty;
+                        try nested_L3.resize(self.allocator, 10);
+                    }
                 }
             }
         }

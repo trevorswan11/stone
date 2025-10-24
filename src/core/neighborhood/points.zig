@@ -1,8 +1,9 @@
 const std = @import("std");
 
 const hash = @import("hash.zig");
+const vec = @import("../math/vec.zig");
 
-pub const ValueType = usize;
+pub const ValueType = u64;
 
 /// A qualified point with a categorized set id.
 pub const PointID = struct {
@@ -27,31 +28,32 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
     return struct {
         const Self = @This();
 
-        pub const Lock =
-            if (single_threaded) struct {
-                div_zero_appeaser: u1 = 0,
+        pub const Lock = if (single_threaded) struct {
+            div_zero_appeaser: u1 = 0,
 
-                /// No-op lock for single threaded builds.
-                pub fn lock(_: *@This()) void {
-                    return;
-                }
+            /// No-op lock for single threaded builds.
+            pub fn lock(_: *@This()) void {
+                return;
+            }
 
-                pub fn tryLock(_: *@This()) bool {
-                    return true;
-                }
+            pub fn tryLock(_: *@This()) bool {
+                return true;
+            }
 
-                /// No-op unlock for single threaded builds.
-                pub fn unlock(_: *@This()) void {
-                    return;
-                }
-            } else std.Thread.Mutex;
+            /// No-op unlock for single threaded builds.
+            pub fn unlock(_: *@This()) void {
+                return;
+            }
+        } else std.Thread.Mutex;
+
+        pub const Vec3 = vec.Vector(T, 3);
 
         pub const NeighborAccumulator = std.ArrayList(std.ArrayList(ValueType));
         pub const NeighborList = std.ArrayList(NeighborAccumulator);
 
         allocator: std.mem.Allocator,
 
-        position_data: []const [3]T,
+        position_data: []const Vec3,
         number_of_points: usize,
         dynamic: bool,
 
@@ -68,7 +70,7 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
         /// be freed until the associated set is no longer useful.
         pub fn init(
             allocator: std.mem.Allocator,
-            position_data: []const [3]T,
+            position_data: []const Vec3,
             total_points: usize,
             dynamic: bool,
         ) !Self {
@@ -94,7 +96,7 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
         /// Resizes the point set, obviously.
         pub fn resize(
             self: *Self,
-            position_data: []const [3]T,
+            position_data: []const Vec3,
             total_points: usize,
         ) !void {
             self.position_data = position_data;
@@ -206,7 +208,7 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
         /// Retrieves the data point at index idx in the position data.
         ///
         /// Asserts boundedness.
-        pub fn point(self: *const Self, idx: usize) *const [3]T {
+        pub fn point(self: *const Self, idx: usize) *const Vec3 {
             std.debug.assert(idx < self.position_data.len);
             return &self.position_data[idx];
         }
@@ -223,7 +225,7 @@ test "PointSet initialization and destruction" {
     const allocator = testing.allocator;
     var ps = try PointSet(f32, true).init(
         allocator,
-        &.{[3]f32{ 1.0, 2.0, 3.0 }},
+        &.{.init(.{ 1.0, 2.0, 3.0 })},
         1,
         true,
     );
@@ -233,20 +235,21 @@ test "PointSet initialization and destruction" {
 test "PointSet basic init/deinit and sort" {
     const allocator = testing.allocator;
 
-    var points = [_][3]f32{
-        .{ 0.0, 0.1, 0.2 },
-        .{ 1.0, 1.1, 1.2 },
-        .{ 2.0, 2.1, 2.2 },
+    const P = PointSet(f32, true);
+    var points = [_]P.Vec3{
+        .init(.{ 0.0, 0.1, 0.2 }),
+        .init(.{ 1.0, 1.1, 1.2 }),
+        .init(.{ 2.0, 2.1, 2.2 }),
     };
 
-    var set = try PointSet(f32, true).init(allocator, &points, 3, false);
+    var set = try P.init(allocator, &points, 3, false);
     defer set.deinit();
 
     try expectEqual(3, set.number_of_points);
     try expect(!set.dynamic);
 
     const p1 = set.point(1);
-    try expectEqualSlices(f32, p1, ([_]f32{ 1.0, 1.1, 1.2 })[0..3]);
+    try expectEqual(p1.*, P.Vec3.init(.{ 1.0, 1.1, 1.2 }));
     try set.sort_table.appendSlice(allocator, &[_]ValueType{ 2, 1, 0 });
 
     var data = [_]ValueType{ 10, 20, 30 };
@@ -257,8 +260,9 @@ test "PointSet basic init/deinit and sort" {
 test "PointSet neighborCount and fetchNeighbor" {
     const allocator = testing.allocator;
 
-    var points = [_][3]f32{ .{ 0, 0, 0 }, .{ 1, 1, 1 } };
-    var set = try PointSet(f32, true).init(allocator, &points, 2, true);
+    const P = PointSet(f32, true);
+    var points = [_]P.Vec3{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
+    var set = try P.init(allocator, &points, 2, true);
     defer set.deinit();
 
     try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(ValueType)).initCapacity(allocator, 2));
@@ -277,8 +281,9 @@ test "PointSet neighborCount and fetchNeighbor" {
 test "PointSet fetchNeighborList returns copy" {
     const allocator = testing.allocator;
 
-    var points = [_][3]f32{ .{ 0, 0, 0 }, .{ 1, 1, 1 } };
-    var set = try PointSet(f32, true).init(allocator, &points, 2, true);
+    const P = PointSet(f32, true);
+    var points = [_]P.Vec3{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
+    var set = try P.init(allocator, &points, 2, true);
     defer set.deinit();
 
     try set.neighbors.append(allocator, try std.ArrayList(std.ArrayList(ValueType)).initCapacity(allocator, 2));
@@ -297,8 +302,9 @@ test "PointSet fetchNeighborList returns copy" {
 test "PointSet sort errors when table missing" {
     const allocator = testing.allocator;
 
-    var points = [_][3]f32{ .{ 0, 0, 0 }, .{ 1, 1, 1 } };
-    var set = try PointSet(f32, true).init(allocator, &points, 2, true);
+    const P = PointSet(f32, true);
+    var points = [_]P.Vec3{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
+    var set = try P.init(allocator, &points, 2, true);
     defer set.deinit();
 
     var arr = [_]ValueType{ 1, 2 };

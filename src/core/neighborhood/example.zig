@@ -11,13 +11,14 @@ const r_omega: Real = 0.15;
 const r_omega2 = r_omega * r_omega;
 const radius: Real = 2.0 * (2.0 * r_omega / (n_float - 1.0));
 const velocity_damp: Real = 0.005;
+const Vec3 = core.Vector(Real, 3);
 
 const num_threads = if (builtin.single_threaded) 1 else 4;
 const single_threaded = num_threads == 1;
 const Search = core.search.Search(Real, .{ .threadedness = .{ .multithreaded = num_threads } });
 
 fn generatePositions() struct {
-    positions: []const [3]Real,
+    positions: []const Vec3,
     min: Real,
     max: Real,
 } {
@@ -27,13 +28,13 @@ fn generatePositions() struct {
     inline for (0..n) |i| {
         inline for (0..n) |j| {
             inline for (0..n) |k| {
-                const x: [3]Real = .{
+                const x: Vec3 = .init(.{
                     r_omega * (2.0 * @as(Real, @floatFromInt(i)) / (n_float - 1.0) - 1.0),
                     r_omega * (2.0 * @as(Real, @floatFromInt(j)) / (n_float - 1.0) - 1.0),
                     r_omega * (2.0 * @as(Real, @floatFromInt(k)) / (n_float - 1.0) - 1.0),
-                };
+                });
 
-                const l2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+                const l2 = x.vec[0] * x.vec[0] + x.vec[1] * x.vec[1] + x.vec[2] * x.vec[2];
                 if (l2 < r_omega2) {
                     total_len += 1;
                 }
@@ -42,7 +43,7 @@ fn generatePositions() struct {
     }
 
     // Second pass for actual computation
-    var points: [total_len][3]Real = undefined;
+    var points: [total_len]Vec3 = undefined;
     var p_idx: usize = 0;
 
     var min = std.math.floatMax(Real);
@@ -51,19 +52,19 @@ fn generatePositions() struct {
     inline for (0..n) |i| {
         inline for (0..n) |j| {
             inline for (0..n) |k| {
-                var x: [3]Real = .{
+                var x: Vec3 = .init(.{
                     r_omega * (2.0 * @as(Real, @floatFromInt(i)) / (n_float - 1.0) - 1.0),
                     r_omega * (2.0 * @as(Real, @floatFromInt(j)) / (n_float - 1.0) - 1.0),
                     r_omega * (2.0 * @as(Real, @floatFromInt(k)) / (n_float - 1.0) - 1.0),
-                };
+                });
 
-                const l2 = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+                const l2 = x.vec[0] * x.vec[0] + x.vec[1] * x.vec[1] + x.vec[2] * x.vec[2];
                 if (l2 < r_omega2) {
-                    x[0] += 0.35;
-                    x[1] += 0.35;
-                    x[2] += 0.35;
-                    min = @min(min, x[0]);
-                    max = @max(max, x[0]);
+                    x.vec[0] += 0.35;
+                    x.vec[1] += 0.35;
+                    x.vec[2] += 0.35;
+                    min = @min(min, x.vec[0]);
+                    max = @max(max, x.vec[0]);
 
                     points[p_idx] = x;
                     p_idx += 1;
@@ -90,7 +91,7 @@ const Example = struct {
 
     prng: std.Random.DefaultPrng,
     writer: *std.Io.Writer,
-    pos: [positions.len][3]f32 = undefined,
+    pos: [positions.len]Vec3 = undefined,
     workers: [num_threads]std.Thread = undefined,
 
     search: Search,
@@ -104,7 +105,7 @@ const Example = struct {
         };
 
         @memcpy(self.pos[0..], positions);
-        std.Random.shuffle(self.prng.random(), [3]Real, &self.pos);
+        std.Random.shuffle(self.prng.random(), Vec3, &self.pos);
 
         return self;
     }
@@ -113,45 +114,45 @@ const Example = struct {
         self.search.deinit();
     }
 
-    fn enrightVelocityField(point: *const [3]f32) [3]f32 {
-        const sin_pi_x = @sin(std.math.pi * point[0]);
+    fn enrightVelocityField(point: *const Vec3) Vec3 {
+        const sin_pi_x = @sin(std.math.pi * point.vec[0]);
         const sin_pi_x_2 = sin_pi_x * sin_pi_x;
-        const sin_pi_y = @sin(std.math.pi * point[1]);
+        const sin_pi_y = @sin(std.math.pi * point.vec[1]);
         const sin_pi_y_2 = sin_pi_y * sin_pi_y;
-        const sin_pi_z = @sin(std.math.pi * point[2]);
+        const sin_pi_z = @sin(std.math.pi * point.vec[2]);
         const sin_pi_z_2 = sin_pi_z * sin_pi_z;
 
-        const sin_2_pi_x = @sin(2.0 * std.math.pi * point[0]);
-        const sin_2_pi_y = @sin(2.0 * std.math.pi * point[1]);
-        const sin_2_pi_z = @sin(2.0 * std.math.pi * point[2]);
+        const sin_2_pi_x = @sin(2.0 * std.math.pi * point.vec[0]);
+        const sin_2_pi_y = @sin(2.0 * std.math.pi * point.vec[1]);
+        const sin_2_pi_z = @sin(2.0 * std.math.pi * point.vec[2]);
 
-        return .{
+        return .init(.{
             2.0 * sin_pi_x_2 * sin_2_pi_y * sin_2_pi_z,
             -sin_2_pi_x * sin_pi_y_2 * sin_2_pi_z,
             -sin_2_pi_x * sin_2_pi_y * sin_pi_z_2,
-        };
+        });
     }
 
     pub fn advect(self: *Example) !void {
-        const chunks = core.ranges.chunk([3]Real, &self.pos, num_threads);
+        const chunks = core.ranges.chunk(Vec3, &self.pos, num_threads);
         const context = .{};
 
         try core.parallel_loop.@"for"(
-            [3]Real,
+            Vec3,
             &self.pos,
             num_threads,
             chunks,
             &self.workers,
             context,
             struct {
-                pub fn advectChunk(ctx: @TypeOf(context), slice: [][3]Real, thread_num: usize) !void {
+                pub fn advectChunk(ctx: @TypeOf(context), slice: []Vec3, thread_num: usize) !void {
                     _ = ctx;
                     _ = thread_num;
                     for (slice) |*point| {
                         const v = enrightVelocityField(point);
-                        point[0] += velocity_damp * v[0];
-                        point[1] += velocity_damp * v[1];
-                        point[2] += velocity_damp * v[2];
+                        point.vec[0] += velocity_damp * v.vec[0];
+                        point.vec[1] += velocity_damp * v.vec[1];
+                        point.vec[2] += velocity_damp * v.vec[2];
                     }
                 }
             }.advectChunk,
@@ -209,7 +210,7 @@ const Example = struct {
         // Sorting
         try self.search.zort();
         for (self.search.point_sets.items) |*point_set| {
-            try point_set.sort([3]Real, &self.pos);
+            try point_set.sort(Vec3, &self.pos);
         }
         try self.search.findNeighbors(.{ .actual = .{} });
         try self.writer.print(

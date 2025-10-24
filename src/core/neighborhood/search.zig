@@ -51,6 +51,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         const Self = @This();
 
         pub const PointSet = points.PointSet(T, single_threaded);
+        pub const Vec3 = PointSet.Vec3;
         pub const HashEntry = hash.Entry(initial_num_indices);
 
         pub const QueryVariant = union(enum) {
@@ -74,7 +75,7 @@ pub fn Search(comptime T: type, comptime config: struct {
             ///
             /// The neighbors list is updated in place with a list of neighboring points.
             single_point: struct {
-                point: *const [3]T,
+                point: *const Vec3,
                 neighbors: *PointSet.NeighborAccumulator,
             },
         };
@@ -220,7 +221,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         pub fn resizePointSet(
             self: *Self,
             point_set_idx: usize,
-            new_positions: []const [3]T,
+            new_positions: []const Vec3,
             total_points: usize,
         ) !void {
             if (self.requires_refresh) {
@@ -297,7 +298,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         /// to the newly created point set.
         pub fn addPointSet(
             self: *Self,
-            point_positions: []const [3]T,
+            point_positions: []const Vec3,
             total_points: usize,
             dynamic: bool,
             set_flags: hash.ActivationTable.SetFlags,
@@ -733,7 +734,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         pub fn addNeighbors(
             self: *const Self,
             relevant_entry_idx: points.ValueType,
-            relevant_point: *const [3]f32,
+            relevant_point: *const Vec3,
             neighbors: *PointSet.NeighborAccumulator,
             relevant_point_id: ?points.PointID,
             comptime omit_inactive: bool,
@@ -767,10 +768,10 @@ pub fn Search(comptime T: type, comptime config: struct {
         /// Returns the squared distance between two points:
         ///
         /// d = (a1 - b1)^2 + (a3 - b3)^2 + (a3 - b3)^2
-        fn distanceSquared(a: *const [3]T, b: *const [3]T) T {
+        fn distanceSquared(a: *const Vec3, b: *const Vec3) T {
             var dist: T = 0;
-            inline for (a, b) |an, bn| {
-                const diff = an - bn;
+            inline for (0..3) |i| {
+                const diff = a.vec[i] - b.vec[i];
                 dist += diff * diff;
             }
             return dist;
@@ -1036,12 +1037,12 @@ pub fn Search(comptime T: type, comptime config: struct {
         }
 
         /// Converts a triple float index to a world space position x.
-        pub fn cellIndex(self: *Self, point: *const [3]T) hash.Key {
+        pub fn cellIndex(self: *Self, point: *const Vec3) hash.Key {
             var key: hash.Key = undefined;
             inline for (0..3) |i| {
                 key.key[i] = blk: {
-                    const val: i32 = @intFromFloat(self.inverse_radius * point[i]);
-                    break :blk if (point[i] >= 0.0) val else val - 1;
+                    const val: i32 = @intFromFloat(self.inverse_radius * point.vec[i]);
+                    break :blk if (point.vec[i] >= 0.0) val else val - 1;
                 };
             }
             return key;
@@ -1065,16 +1066,16 @@ test "Cell index probing" {
     var search = try Search(f32, .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
     defer search.deinit();
 
-    try expectEqualSlices(i32, &.{ -657740481, 153456480, 636497664 }, &search.cellIndex(&.{ -2065305262.0, 481853423.0, 1998602736.0 }).key);
-    try expectEqualSlices(i32, &.{ -230444097, 230401024, -317766241 }, &search.cellIndex(&.{ -723594490.0, 723459257.0, -997786085.0 }).key);
-    try expectEqualSlices(i32, &.{ 673585088, 646660352, -252833953 }, &search.cellIndex(&.{ 2115057420.0, 2030513621.0, -793898702.0 }).key);
-    try expectEqualSlices(i32, &.{ -497842017, -120704697, 111086728 }, &search.cellIndex(&.{ -1563224045.0, -379012780.0, 348812344.0 }).key);
-    try expectEqualSlices(i32, &.{ -673504321, 600115520, -463189697 }, &search.cellIndex(&.{ -2114803654.0, 1884362860.0, -1454415730.0 }).key);
-    try expectEqualSlices(i32, &.{ 287908672, -227144529, 88177824 }, &search.cellIndex(&.{ 904033316.0, -713233864.0, 276878398.0 }).key);
-    try expectEqualSlices(i32, &.{ -568131777, 582154048, -421773505 }, &search.cellIndex(&.{ -1783933800.0, 1827963946.0, -1324368939.0 }).key);
-    try expectEqualSlices(i32, &.{ -615122241, -31370115, 263366896 }, &search.cellIndex(&.{ -1931484049.0, -98502170.0, 826972073.0 }).key);
-    try expectEqualSlices(i32, &.{ -625082241, 226288784, -357421089 }, &search.cellIndex(&.{ -1962758367.0, 710546820.0, -1122302356.0 }).key);
-    try expectEqualSlices(i32, &.{ -464479265, 111545256, -232559297 }, &search.cellIndex(&.{ -1458465012.0, 350252140.0, -730236255.0 }).key);
+    try expectEqualSlices(i32, &.{ -657740481, 153456480, 636497664 }, &search.cellIndex(&.init(.{ -2065305262.0, 481853423.0, 1998602736.0 })).key);
+    try expectEqualSlices(i32, &.{ -230444097, 230401024, -317766241 }, &search.cellIndex(&.init(.{ -723594490.0, 723459257.0, -997786085.0 })).key);
+    try expectEqualSlices(i32, &.{ 673585088, 646660352, -252833953 }, &search.cellIndex(&.init(.{ 2115057420.0, 2030513621.0, -793898702.0 })).key);
+    try expectEqualSlices(i32, &.{ -497842017, -120704697, 111086728 }, &search.cellIndex(&.init(.{ -1563224045.0, -379012780.0, 348812344.0 })).key);
+    try expectEqualSlices(i32, &.{ -673504321, 600115520, -463189697 }, &search.cellIndex(&.init(.{ -2114803654.0, 1884362860.0, -1454415730.0 })).key);
+    try expectEqualSlices(i32, &.{ 287908672, -227144529, 88177824 }, &search.cellIndex(&.init(.{ 904033316.0, -713233864.0, 276878398.0 })).key);
+    try expectEqualSlices(i32, &.{ -568131777, 582154048, -421773505 }, &search.cellIndex(&.init(.{ -1783933800.0, 1827963946.0, -1324368939.0 })).key);
+    try expectEqualSlices(i32, &.{ -615122241, -31370115, 263366896 }, &search.cellIndex(&.init(.{ -1931484049.0, -98502170.0, 826972073.0 })).key);
+    try expectEqualSlices(i32, &.{ -625082241, 226288784, -357421089 }, &search.cellIndex(&.init(.{ -1962758367.0, 710546820.0, -1122302356.0 })).key);
+    try expectEqualSlices(i32, &.{ -464479265, 111545256, -232559297 }, &search.cellIndex(&.init(.{ -1458465012.0, 350252140.0, -730236255.0 })).key);
 }
 
 test "Search basic validity" {
@@ -1095,17 +1096,17 @@ test "Search basic usage" {
     defer search.deinit();
 
     // Set 0: Static, 2 points
-    var p0_data = [_][3]f32{
-        .{ 0.0, 0.0, 0.0 }, // p0_0 @ cell (0,0,0)
-        .{ 5.0, 5.0, 5.0 }, // p0_1 @ cell (5,5,5)
+    var p0_data = [_]S.Vec3{
+        .init(.{ 0.0, 0.0, 0.0 }), // p0_0 @ cell (0,0,0)
+        .init(.{ 5.0, 5.0, 5.0 }), // p0_1 @ cell (5,5,5)
     };
 
     // Set 1: Dynamic, 2 points
-    var p1_data_buf = try std.ArrayList([3]f32).initCapacity(allocator, 12);
+    var p1_data_buf = try std.ArrayList(S.Vec3).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
     try p1_data_buf.appendSlice(allocator, &.{
-        .{ 0.5, 0.0, 0.0 }, // p1_0 @ cell (0,0,0)
-        .{ 10.0, 10.0, 10.0 }, // p1_1 @ cell (10,10,10)
+        .init(.{ 0.5, 0.0, 0.0 }), // p1_0 @ cell (0,0,0)
+        .init(.{ 10.0, 10.0, 10.0 }), // p1_1 @ cell (10,10,10)
     });
 
     const p0_id = try search.addPointSet(
@@ -1146,9 +1147,9 @@ test "Search basic usage" {
 
     // Verify Initial State
     try expectEqual(3, search.map.count());
-    const key0 = search.cellIndex(&.{ 0.0, 0.0, 0.0 });
-    const key1 = search.cellIndex(&.{ 5.0, 5.0, 5.0 });
-    const key2 = search.cellIndex(&.{ 10.0, 10.0, 10.0 });
+    const key0 = search.cellIndex(&.init(.{ 0.0, 0.0, 0.0 }));
+    const key1 = search.cellIndex(&.init(.{ 5.0, 5.0, 5.0 }));
+    const key2 = search.cellIndex(&.init(.{ 10.0, 10.0, 10.0 }));
 
     // Cell (0,0,0) has p0_0 and p1_0
     const entry0_idx = search.map.get(key0).?;
@@ -1170,14 +1171,14 @@ test "Search basic usage" {
     search.erase_empty_cells = true;
 
     // Move p1_0 (idx 0) from (0.5, 0, 0) -> (0.5, 2.0, 0)
-    p1_data_buf.items[0][1] = 2.0;
+    p1_data_buf.items[0].vec[1] = 2.0;
     const new_key_p1_0 = search.cellIndex(search.point_sets.items[p1_id].point(0));
     try expectEqualSlices(i32, &.{ 0, 2, 0 }, &new_key_p1_0.key);
 
     // Move p1_1 (idx 1) from (10, 10, 10) -> (5.1, 5.0, 5.0)
-    p1_data_buf.items[1][0] = 5.1;
-    p1_data_buf.items[1][1] = 5.0;
-    p1_data_buf.items[1][2] = 5.0;
+    p1_data_buf.items[1].vec[0] = 5.1;
+    p1_data_buf.items[1].vec[1] = 5.0;
+    p1_data_buf.items[1].vec[2] = 5.0;
     const new_key_p1_1 = search.cellIndex(search.point_sets.items[p1_id].point(1));
     try expectEqualSlices(i32, &.{ 5, 5, 5 }, &new_key_p1_1.key);
 
@@ -1192,7 +1193,7 @@ test "Search basic usage" {
 
     try search.findNeighbors(.{ .actual = .{ .points_changed = true } });
     try search.findNeighbors(.{ .single_point = .{
-        .point = &.{ 0.0, 0.0, 0.0 },
+        .point = &.init(.{ 0.0, 0.0, 0.0 }),
         .neighbors = &neighbors,
     } });
     try search.findNeighbors(.{ .single_point_from_set = .{
@@ -1210,12 +1211,15 @@ test "Search neighbor queries - single threaded" {
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
-    var p0_data = [_][3]f32{ .{ 0.0, 0.0, 0.0 }, .{ 5.0, 5.0, 5.0 } };
-    var p1_data_buf = try std.ArrayList([3]f32).initCapacity(allocator, 12);
+    var p0_data = [_]S.Vec3{
+        .init(.{ 0.0, 0.0, 0.0 }),
+        .init(.{ 5.0, 5.0, 5.0 }),
+    };
+    var p1_data_buf = try std.ArrayList(S.Vec3).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
     try p1_data_buf.appendSlice(allocator, &.{
-        .{ 0.5, 0.0, 0.0 },
-        .{ 10.0, 10.0, 10.0 },
+        .init(.{ 0.5, 0.0, 0.0 }),
+        .init(.{ 10.0, 10.0, 10.0 }),
     });
 
     const p0_id = try search.addPointSet(
@@ -1241,10 +1245,10 @@ test "Search neighbor queries - single threaded" {
     search.erase_empty_cells = true;
 
     // Move points
-    p1_data_buf.items[0][1] = 2.0;
-    p1_data_buf.items[1][0] = 5.1;
-    p1_data_buf.items[1][1] = 5.0;
-    p1_data_buf.items[1][2] = 5.0;
+    p1_data_buf.items[0].vec[1] = 2.0;
+    p1_data_buf.items[1].vec[0] = 5.1;
+    p1_data_buf.items[1].vec[1] = 5.0;
+    p1_data_buf.items[1].vec[2] = 5.0;
 
     // Run search to update internal state (.actual)
     try search.findNeighbors(.{ .actual = .{ .points_changed = true } });
@@ -1278,7 +1282,7 @@ test "Search neighbor queries - single threaded" {
             defer neighbors_single.deinit(allocator);
             for (neighbors_single.items) |*list| list.deinit(allocator);
         }
-        const query_point: [3]f32 = .{ 0.1, 0.1, 0.1 };
+        const query_point: S.Vec3 = .init(.{ 0.1, 0.1, 0.1 });
 
         try search.findNeighbors(.{ .single_point = .{
             .point = &query_point,
@@ -1303,12 +1307,15 @@ test "Search neighbor queries - multi threaded" {
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
-    var p0_data = [_][3]f32{ .{ 0.0, 0.0, 0.0 }, .{ 5.0, 5.0, 5.0 } };
-    var p1_data_buf = try std.ArrayList([3]f32).initCapacity(allocator, 12);
+    var p0_data = [_]S.Vec3{
+        .init(.{ 0.0, 0.0, 0.0 }),
+        .init(.{ 5.0, 5.0, 5.0 }),
+    };
+    var p1_data_buf = try std.ArrayList(S.Vec3).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
     try p1_data_buf.appendSlice(allocator, &.{
-        .{ 0.5, 0.0, 0.0 },
-        .{ 10.0, 10.0, 10.0 },
+        .init(.{ 0.5, 0.0, 0.0 }),
+        .init(.{ 10.0, 10.0, 10.0 }),
     });
 
     const p0_id = try search.addPointSet(
@@ -1334,10 +1341,10 @@ test "Search neighbor queries - multi threaded" {
     search.erase_empty_cells = true;
 
     // Move points
-    p1_data_buf.items[0][1] = 2.0;
-    p1_data_buf.items[1][0] = 5.1;
-    p1_data_buf.items[1][1] = 5.0;
-    p1_data_buf.items[1][2] = 5.0;
+    p1_data_buf.items[0].vec[1] = 2.0;
+    p1_data_buf.items[1].vec[0] = 5.1;
+    p1_data_buf.items[1].vec[1] = 5.0;
+    p1_data_buf.items[1].vec[2] = 5.0;
 
     // Run search to update internal state (.actual)
     try search.findNeighbors(.{ .actual = .{ .points_changed = true } });
@@ -1371,7 +1378,7 @@ test "Search neighbor queries - multi threaded" {
             defer neighbors_single.deinit(allocator);
             for (neighbors_single.items) |*list| list.deinit(allocator);
         }
-        const query_point: [3]f32 = .{ 0.1, 0.1, 0.1 };
+        const query_point: S.Vec3 = .init(.{ 0.1, 0.1, 0.1 });
 
         try search.findNeighbors(.{ .single_point = .{
             .point = &query_point,

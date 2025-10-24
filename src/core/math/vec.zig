@@ -92,6 +92,41 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
 
             return .{ .vec = c };
         }
+
+        /// Returns the squared magnitude of the vector.
+        ///
+        /// Cheaper than mag() as it avoids a square root.
+        pub fn magSq(self: Self) T {
+            return self.dot(self);
+        }
+
+        /// Returns the magnitude of the vector.
+        ///
+        /// T must be a float type.
+        pub fn mag(self: Self) T {
+            comptime {
+                if (@typeInfo(T) != .float) {
+                    @compileError("mag() is only defined for float vectors");
+                }
+            }
+
+            return @sqrt(self.magSq());
+        }
+
+        /// Returns a new vector with the same direction but a magnitude of 1.
+        ///
+        /// T must be a float type.
+        pub fn normalize(self: Self) error{DivisionByZero}!Self {
+            comptime {
+                if (@typeInfo(T) != .float) {
+                    @compileError("normalize() is only defined for float vectors");
+                }
+            }
+
+            const m = self.mag();
+            if (m == 0) return error.DivisionByZero;
+            return self.scale(1.0 / m);
+        }
     };
 }
 
@@ -99,6 +134,7 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualSlices = testing.expectEqualSlices;
+const expectApproxEqAbs = testing.expectApproxEqAbs;
 
 test "Vector initialization and scalar multiplication" {
     const Vec4 = Vector(f32, 4);
@@ -152,4 +188,19 @@ test "Cross product" {
     const a4 = Vec4.init(.{ 3.0, -3.0, 1.0, 30.0 });
     const b4 = Vec4.init(.{ 4.0, 9.0, 2.0, -9030.0 });
     try expectEqual(Vec4.init(.{ -15.0, -2.0, 39.0, 30.0 }), a4.cross(b4));
+}
+
+test "Vector geometric operations" {
+    const Vec3 = Vector(f32, 3);
+    const a = Vec3.init(.{ 3.0, 0.0, 4.0 });
+
+    try expectApproxEqAbs(25.0, a.magSq(), 1e-6);
+    try expectApproxEqAbs(5.0, a.mag(), 1e-6);
+
+    const expected_norm = Vec3.init(.{ 0.6, 0.0, 0.8 });
+    const actual_norm = try a.normalize();
+
+    inline for (0..3) |i| {
+        try expectApproxEqAbs(expected_norm.vec[i], actual_norm.vec[i], 1e-6);
+    }
 }

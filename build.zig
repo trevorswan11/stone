@@ -9,7 +9,7 @@ comptime {
         const error_message =
             \\Sorry, it looks like your version of Zig isn't right. :-(
             \\
-            \\Stone requires Zig version {}
+            \\Stone requires Zig version {f}
             \\
             \\https://ziglang.org/download/
             \\

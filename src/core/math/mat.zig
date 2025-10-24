@@ -27,6 +27,12 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
         pub const VecType = Vector(T, n);
         const MatType = [m]VecType;
 
+        const default_value: T = switch (@typeInfo(T)) {
+            .float => 0.0,
+            .int => 0,
+            else => unreachable,
+        };
+
         /// Helper for iteration, mutating this does nothing good for you
         dims: struct {
             numel: usize = m * n,
@@ -86,6 +92,48 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
             std.debug.assert(idx < self.dims.numel);
             const row, const col = dimsFrom(idx);
             return &self.mat[row].vec[col];
+        }
+
+        /// Transposes the (m x n) matrix into an (n x m) matrix.
+        pub fn transpose(self: Self) Matrix(T, n, m) {
+            const OutMat = Matrix(T, n, m);
+            var out: OutMat = comptime OutMat.splat(default_value);
+
+            inline for (0..m) |i| {
+                inline for (0..n) |j| {
+                    out.mat[j].vec[i] = self.mat[i].vec[j];
+                }
+            }
+            return out;
+        }
+
+        /// Multiplies this (m x n) matrix by an n-dimensional vector.
+        pub fn mulVec(self: Self, v: VecType) Vector(T, m) {
+            const OutVec = Vector(T, m);
+            var out: OutVec = undefined;
+
+            inline for (0..m) |i| {
+                out.vec[i] = self.mat[i].dot(v);
+            }
+            return out;
+        }
+
+        /// Multiplies this (m x n) matrix by an (n x p) matrix.
+        pub fn mul(
+            self: Self,
+            comptime p: comptime_int,
+            other: Matrix(T, n, p),
+        ) Matrix(T, m, p) {
+            const OutMat = Matrix(T, m, p);
+            var out: OutMat = comptime OutMat.splat(default_value);
+
+            const other_T = other.transpose();
+            inline for (0..m) |i| {
+                inline for (0..p) |k| {
+                    out.mat[i].vec[k] = self.mat[i].dot(other_T.mat[k]);
+                }
+            }
+            return out;
         }
     };
 }
@@ -193,4 +241,66 @@ test "Matrix initialization and scalar multiplication" {
     for (init_vals76, 0..) |val, i| {
         try expectEqual(val, actual_76.ptrAt(i).*);
     }
+}
+
+test "Matrix transposition" {
+    const Mat23 = Matrix(f32, 2, 3);
+    const Mat32 = Matrix(f32, 3, 2);
+    const m23 = Mat23.init(.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
+
+    const m32 = m23.transpose();
+    const expected_m32_data = [_]f32{ 1.0, 4.0, 2.0, 5.0, 3.0, 6.0 };
+    const expected_m32 = Mat32.init(expected_m32_data);
+
+    try expectEqualSlices(Mat32.VecType, &expected_m32.mat, &m32.mat);
+    try expect(@TypeOf(m23) != @TypeOf(m32));
+    try expect(@TypeOf(m32) == Mat32);
+}
+
+test "Matrix-vector multiplication" {
+    const Mat33 = Matrix(f32, 3, 3);
+    const m33 = Mat33.init(.{
+        1.0, 2.0, 3.0,
+        4.0, 5.0, 6.0,
+        7.0, 8.0, 9.0,
+    });
+    const vec3: Mat33.VecType = .init(.{ 2.0, 3.0, 4.0 });
+
+    const out_vec = m33.mulVec(vec3);
+    const expected_vec: @Vector(3, f32) = .{
+        (1.0 * 2.0 + 2.0 * 3.0 + 3.0 * 4.0),
+        (4.0 * 2.0 + 5.0 * 3.0 + 6.0 * 4.0),
+        (7.0 * 2.0 + 8.0 * 3.0 + 9.0 * 4.0),
+    };
+
+    inline for (0..3) |i| {
+        try expectEqual(expected_vec[i], out_vec.vec[i]);
+    }
+    try expect(@TypeOf(out_vec) == Vector(f32, 3));
+}
+
+test "Matrix-matrix multiplication" {
+    const Mat23 = Matrix(f32, 2, 3);
+    const Mat2 = Matrix(f32, 2, 2);
+
+    const m1 = Mat23.init(.{
+        1.0, 2.0, 3.0,
+        4.0, 5.0, 6.0,
+    });
+
+    const m23 = Mat23.init(.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
+    const m2 = m23.transpose();
+    const out_m = m1.mul(2, m2);
+
+    // Manually calculate expected result
+    // out[0][0] = row0(m1) * col0(m2) = (1,2,3) * (1,2,3) = 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
+    // out[0][1] = row0(m1) * col1(m2) = (1,2,3) * (4,5,6) = 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+    // out[1][0] = row1(m1) * col0(m2) = (4,5,6) * (1,2,3) = 4*1 + 5*2 + 6*3 = 4 + 10 + 18 = 32
+    // out[1][1] = row1(m1) * col1(m2) = (4,5,6) * (4,5,6) = 4*4 + 5*5 + 6*6 = 16 + 25 + 36 = 77
+
+    const expected_out_m_data = [_]f32{ 14.0, 32.0, 32.0, 77.0 };
+    const expected_out_m = Mat2.init(expected_out_m_data);
+
+    try expect(@TypeOf(out_m) == Mat2);
+    try expectEqualSlices(Mat2.VecType, &expected_out_m.mat, &out_m.mat);
 }

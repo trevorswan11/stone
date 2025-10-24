@@ -14,25 +14,6 @@ pub const PointID = struct {
     }
 };
 
-/// Creates a flat array of floats from a dynamic array of 3D positions.
-///
-/// T must be a float, and this is confirmed at comptime.
-///
-/// The returned slice directly references the input memory.
-pub fn flattenPositions(
-    comptime T: type,
-    positions: []const [3]T,
-) []const T {
-    switch (@typeInfo(T)) {
-        .float => {},
-        else => @compileError("T must be a known float type"),
-    }
-
-    const ptr: [*]const T = @ptrCast(positions.ptr);
-    const count = positions.len * 3;
-    return ptr[0..count];
-}
-
 /// Creates a set of points in three-dimensional space.
 /// Almost entirely managed externally.
 ///
@@ -237,30 +218,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualSlices = testing.expectEqualSlices;
 const expectError = testing.expectError;
-
-test "Position data flattening" {
-    const allocator = testing.allocator;
-
-    var positions: std.ArrayList([3]f32) = .empty;
-    defer positions.deinit(allocator);
-
-    try positions.append(allocator, .{ 1.0, 2.0, 3.0 });
-    try positions.append(allocator, .{ 4.0, 5.0, 6.0 });
-    try positions.append(allocator, .{ 7.0, 8.0, 9.0 });
-
-    const flattened = flattenPositions(f32, positions.items);
-
-    try std.testing.expectEqual(9, flattened.len);
-    try std.testing.expectEqual(flattened[0], 1.0);
-    try std.testing.expectEqual(flattened[1], 2.0);
-    try std.testing.expectEqual(flattened[2], 3.0);
-    try std.testing.expectEqual(flattened[3], 4.0);
-    try std.testing.expectEqual(flattened[4], 5.0);
-    try std.testing.expectEqual(flattened[5], 6.0);
-    try std.testing.expectEqual(flattened[6], 7.0);
-    try std.testing.expectEqual(flattened[7], 8.0);
-    try std.testing.expectEqual(flattened[8], 9.0);
-}
 
 test "PointSet initialization and destruction" {
     const allocator = testing.allocator;

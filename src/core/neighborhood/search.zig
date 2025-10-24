@@ -995,17 +995,44 @@ pub fn Search(comptime T: type, comptime config: struct {
                 }
             }
 
-            // Perform neighborhood search to update remaining entries
-            // TODO: Parallelize maybe
-            var values = self.map.valueIterator();
-            while (values.next()) |value| {
-                for (to_delete.items, 0..) |selected, i| {
-                    if (value.* >= selected) {
-                        value.* -= to_delete.items.len - i;
-                        break;
-                    }
-                }
+            // Collect the values into linear array for multithreaded access
+            const Value = *points.ValueType;
+            const ValueFlatMap = std.ArrayList(Value);
+            var values = try ValueFlatMap.initCapacity(self.allocator, self.map.count());
+            defer values.deinit(self.allocator);
+
+            var v_iter = self.map.valueIterator();
+            while (v_iter.next()) |v| {
+                values.appendAssumeCapacity(v);
             }
+
+            const chunks = ranges.chunk(Value, values.items, num_threads);
+            const context = .{to_delete};
+
+            // Perform neighborhood search to update remaining entries
+            try parallel_loop.@"for"(
+                Value,
+                values.items,
+                num_threads,
+                chunks,
+                &self.workers,
+                context,
+                struct {
+                    pub fn afn(ctx: @TypeOf(context), slice: []Value, thread_num: usize) !void {
+                        _ = thread_num;
+                        const selected_items = ctx.@"0";
+                        for (slice) |value| {
+                            for (selected_items.items, 0..) |selected, i| {
+                                if (value.* >= selected) {
+                                    value.* -= selected_items.items.len - i;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }.afn,
+                .{},
+            );
         }
 
         /// Converts a triple float index to a world space position x.

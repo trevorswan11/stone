@@ -239,10 +239,7 @@ const Example = struct {
 
 pub fn main() !void {
     @setFloatMode(.optimized);
-    const allocator = if (comptime single_threaded)
-        std.heap.c_allocator
-    else
-        std.heap.smp_allocator;
+    const allocator = core.allocator(single_threaded);
 
     var buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&buffer);

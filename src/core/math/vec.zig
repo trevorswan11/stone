@@ -7,11 +7,15 @@ const std = @import("std");
 /// Desired operations not provided by this api should access the `vec` field directly.
 ///
 /// T must be a known float or int type.
+///
+/// Asserts that n is a strictly positive integer.
 pub fn Vector(comptime T: type, comptime n: comptime_int) type {
     switch (@typeInfo(T)) {
         .float, .int => {},
         else => @compileError("T must be a known float or int type"),
     }
+
+    if (n < 1) @compileError("Vector dimension n must be strictly positive");
 
     return struct {
         const Self = @This();

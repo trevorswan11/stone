@@ -1,3 +1,5 @@
+pub const allocator = @import("core/threading/allocator.zig").allocator;
+
 pub const parallel_loop = @import("core/threading/parallel_loop.zig");
 pub const ranges = @import("core/threading/ranges.zig");
 
@@ -6,8 +8,8 @@ pub const points = @import("core/neighborhood/points.zig");
 pub const search = @import("core/neighborhood/search.zig");
 pub const zorder = @import("core/neighborhood/zorder.zig");
 
-const vec = @import("core/math/vec.zig");
-pub const Vector = vec.Vector;
+pub const Vector = @import("core/math/vec.zig").Vector;
+pub const Matrix = @import("core/math/mat.zig").Matrix;
 
 test {
     _ = @import("core/threading/parallel_loop.zig");
@@ -18,4 +20,5 @@ test {
     _ = @import("core/neighborhood/zorder.zig");
 
     _ = @import("core/math/vec.zig");
+    _ = @import("core/math/mat.zig");
 }

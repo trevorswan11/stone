@@ -116,7 +116,9 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
         /// Returns a new vector with the same direction but a magnitude of 1.
         ///
         /// T must be a float type.
-        pub fn normalize(self: Self) error{DivisionByZero}!Self {
+        ///
+        /// Asserts that the magnitude is nonzero.
+        pub fn normalize(self: Self) Self {
             comptime {
                 if (@typeInfo(T) != .float) {
                     @compileError("normalize() is only defined for float vectors");
@@ -124,7 +126,7 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
             }
 
             const m = self.mag();
-            if (m == 0) return error.DivisionByZero;
+            std.debug.assert(m != 0);
             return self.scale(1.0 / m);
         }
     };
@@ -198,7 +200,7 @@ test "Vector geometric operations" {
     try expectApproxEqAbs(5.0, a.mag(), 1e-6);
 
     const expected_norm = Vec3.init(.{ 0.6, 0.0, 0.8 });
-    const actual_norm = try a.normalize();
+    const actual_norm = a.normalize();
 
     inline for (0..3) |i| {
         try expectApproxEqAbs(expected_norm.vec[i], actual_norm.vec[i], 1e-6);

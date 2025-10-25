@@ -23,7 +23,6 @@ fn generatePositions() struct {
     max: Real,
 } {
     @setEvalBranchQuota(100_000_000);
-    // Pass one for size
     var total_len: comptime_int = 0;
     inline for (0..n) |i| {
         inline for (0..n) |j| {

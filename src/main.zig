@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const core = @import("core");
+const engine = @import("engine");
 const vk = @import("vulkan");
 
 const vert_spv align(@alignOf(u32)) = @embedFile("vertex_shader").*;

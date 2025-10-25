@@ -28,7 +28,13 @@ pub fn build(b: *std.Build) !void {
     }
 
     const core = b.addModule("core", .{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/core/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const engine = b.addModule("core", .{
+        .root_source_file = b.path("src/engine/root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -42,6 +48,7 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
             .imports = &.{
                 .{ .name = "core", .module = core },
+                .{ .name = "engine", .module = engine },
             },
         }),
         .use_llvm = true,
@@ -63,10 +70,9 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run tests");
     const stone_tests = addToTestStep(b, stone.root_module, test_step);
     const core_tests = addToTestStep(b, core, test_step);
+    const engine_tests = addToTestStep(b, engine, test_step);
 
-    const compiles = addCoreExamples(b, core, target, optimize) ++ .{
-        stone_tests, core_tests,
-    };
+    const compiles = addCoreExamples(b, core, target, optimize) ++ .{ stone_tests, core_tests, engine_tests };
 
     addGraphicsDeps(b, stone, target);
     try addShaders(b, stone, test_step, compiles, &.{

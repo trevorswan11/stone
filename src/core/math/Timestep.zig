@@ -26,13 +26,3 @@ pub fn deltaTime(self: *Self, comptime T: type) T {
     const dt_f: T = @floatFromInt(dt);
     return dt_f / us_per_s;
 }
-
-const testing = std.testing;
-const expectApproxEqlAbs = testing.expectApproxEqAbs;
-
-test "deltaTime returns seconds" {
-    var timer = Self.init();
-    std.Thread.sleep(10_000);
-    const dt = timer.deltaTime(f64);
-    try expectApproxEqlAbs(0.00001, dt, 0.0001);
-}

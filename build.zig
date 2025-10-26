@@ -31,12 +31,14 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/core/root.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
     const engine = b.addModule("engine", .{
         .root_source_file = b.path("src/engine/root.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
     const stone = b.addExecutable(.{
@@ -67,15 +69,17 @@ pub fn build(b: *std.Build) !void {
     }
 
     // Add necessary steps and remaining artifacts
-    const test_step = b.step("test", "Run tests");
-    const stone_tests = addToTestStep(b, stone.root_module, test_step);
+    const test_step = b.step("test", "Run core tests");
     const core_tests = addToTestStep(b, core, test_step);
-    const engine_tests = addToTestStep(b, engine, test_step);
+
+    const gest_test = b.step("gtest", "Run graphics tests");
+    const stone_tests = addToTestStep(b, stone.root_module, gest_test);
+    const engine_tests = addToTestStep(b, engine, gest_test);
 
     const compiles = addCoreExamples(b, core, target, optimize) ++ .{ stone_tests, core_tests, engine_tests };
 
-    addGraphicsDeps(b, stone, target);
-    try addShaders(b, stone, test_step, compiles, &.{
+    addGraphicsDeps(b, stone, .{ stone_tests.root_module, engine_tests.root_module }, target);
+    try addShaders(b, stone, .{ test_step, gest_test }, compiles, &.{
         .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
     });
@@ -92,8 +96,12 @@ pub fn build(b: *std.Build) !void {
 fn addGraphicsDeps(
     b: *std.Build,
     exe: *std.Build.Step.Compile,
+    tests: anytype,
     target: std.Build.ResolvedTarget,
 ) void {
+    const TestsType = @TypeOf(tests);
+    validateTupleStruct(TestsType);
+
     const is_wayland = b.option(
         bool,
         "wayland",
@@ -103,164 +111,170 @@ fn addGraphicsDeps(
     if (target.result.os.tag == .linux and is_wayland) {
         @panic("Wayland is not currently supported");
     }
+
     const engine = exe.root_module.import_table.get("engine") orelse @panic("Engine module not found");
+    const mods = .{engine} ++ tests;
 
-    const vulkan = b.dependency("vulkan", .{
-        .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
-    }).module("vulkan-zig");
-    engine.addImport("vulkan", vulkan);
+    const mods_fields = @typeInfo(@TypeOf(mods)).@"struct".fields;
+    inline for (mods_fields) |mod_field| {
+        const mod: *std.Build.Module = @field(mods, mod_field.name);
+        const vulkan = b.dependency("vulkan", .{
+            .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
+        }).module("vulkan-zig");
+        mod.addImport("vulkan", vulkan);
 
-    const glfw = b.dependency("glfw", .{});
-    engine.addIncludePath(glfw.path("include/GLFW"));
-    engine.addIncludePath(glfw.path("src"));
-    var platform_define: []const u8 = undefined;
+        const glfw = b.dependency("glfw", .{});
+        mod.addIncludePath(glfw.path("include/GLFW"));
+        mod.addIncludePath(glfw.path("src"));
+        var platform_define: []const u8 = undefined;
 
-    // Platform specific source files and defines
-    const platform_sources = blk: {
+        // Platform specific source files and defines
+        const platform_sources = blk: {
+            switch (target.result.os.tag) {
+                .windows => {
+                    platform_define = "-D_GLFW_WIN32";
+                    break :blk [_]?[]const u8{
+                        "src/win32_init.c",
+                        "src/win32_joystick.c",
+                        "src/win32_monitor.c",
+                        "src/win32_thread.c",
+                        "src/win32_time.c",
+                        "src/win32_window.c",
+                        "src/wgl_context.c",
+
+                        "src/win32_module.c",
+
+                        "src/osmesa_context.c",
+                        "src/egl_context.c",
+                        null,
+                        null,
+                    };
+                },
+                .linux => {
+                    const shared = [_]?[]const u8{
+                        "src/linux_joystick.c",
+                        "src/xkb_unicode.c",
+                        "src/posix_time.c",
+                        "src/glx_context.c",
+                        "src/posix_module.c",
+                        "src/posix_poll.c",
+
+                        "src/posix_thread.c",
+                        "src/osmesa_context.c",
+                        "src/egl_context.c",
+                    };
+
+                    if (is_wayland) {
+                        platform_define = "-D_GLFW_WAYLAND";
+                        break :blk shared ++ [_]?[]const u8{
+                            "src/wl_init.c",
+                            "src/wl_monitor.c",
+                            "src/wl_window.c",
+                        };
+                    } else {
+                        platform_define = "-D_GLFW_X11";
+                        break :blk shared ++ [_]?[]const u8{
+                            "src/x11_init.c",
+                            "src/x11_monitor.c",
+                            "src/x11_window.c",
+                        };
+                    }
+                },
+                .macos => {
+                    platform_define = "-D_GLFW_COCOA";
+                    break :blk [_]?[]const u8{
+                        "src/cocoa_init.m",
+                        "src/cocoa_joystick.m",
+                        "src/cocoa_monitor.m",
+                        "src/cocoa_time.c",
+                        "src/cocoa_window.m",
+                        "src/nsgl_context.m",
+                        "src/posix_module.c",
+                        "src/posix_poll.c",
+
+                        "src/posix_thread.c",
+                        "src/osmesa_context.c",
+                        "src/egl_context.c",
+                        null,
+                    };
+                },
+                else => unreachable,
+            }
+        };
+
+        // Shared source files
+        const common_sources = [_]?[]const u8{
+            "src/init.c",
+            "src/context.c",
+            "src/input.c",
+            "src/monitor.c",
+            "src/platform.c",
+            "src/vulkan.c",
+            "src/window.c",
+
+            "src/null_init.c",
+            "src/null_joystick.c",
+            "src/null_monitor.c",
+            "src/null_window.c",
+        };
+
+        // Source compilation
+        var optimize_flag: []const u8 = "";
+        if (exe.root_module.optimize) |optimize| {
+            switch (optimize) {
+                .Debug => optimize_flag = "-O0",
+                .ReleaseSafe => optimize_flag = "-O2",
+                .ReleaseSmall, .ReleaseFast => optimize_flag = "-O3",
+            }
+        }
+
+        const all_sources = platform_sources ++ common_sources;
+        for (all_sources) |src| {
+            mod.addCSourceFile(.{
+                .file = glfw.path(src orelse continue),
+                .flags = &.{ platform_define, optimize_flag },
+            });
+        }
+
+        // Platform specific libraries
         switch (target.result.os.tag) {
             .windows => {
-                platform_define = "-D_GLFW_WIN32";
-                break :blk [_]?[]const u8{
-                    "src/win32_init.c",
-                    "src/win32_joystick.c",
-                    "src/win32_monitor.c",
-                    "src/win32_thread.c",
-                    "src/win32_time.c",
-                    "src/win32_window.c",
-                    "src/wgl_context.c",
-
-                    "src/win32_module.c",
-
-                    "src/osmesa_context.c",
-                    "src/egl_context.c",
-                    null,
-                    null,
-                };
+                mod.linkSystemLibrary("gdi32", .{});
+                mod.linkSystemLibrary("user32", .{});
+                mod.linkSystemLibrary("shell32", .{});
             },
             .linux => {
-                const shared = [_]?[]const u8{
-                    "src/linux_joystick.c",
-                    "src/xkb_unicode.c",
-                    "src/posix_time.c",
-                    "src/glx_context.c",
-                    "src/posix_module.c",
-                    "src/posix_poll.c",
-
-                    "src/posix_thread.c",
-                    "src/osmesa_context.c",
-                    "src/egl_context.c",
-                };
-
                 if (is_wayland) {
-                    platform_define = "-D_GLFW_WAYLAND";
-                    break :blk shared ++ [_]?[]const u8{
-                        "src/wl_init.c",
-                        "src/wl_monitor.c",
-                        "src/wl_window.c",
-                    };
+                    mod.linkSystemLibrary("wayland-client", .{});
+                    mod.linkSystemLibrary("wayland-cursor", .{});
+                    mod.linkSystemLibrary("wayland-egl", .{});
+                    mod.linkSystemLibrary("egl", .{});
+                    mod.linkSystemLibrary("drm", .{});
+                    mod.linkSystemLibrary("gbm", .{});
+
+                    // TODO: Wayland xdg header dependency resolution
                 } else {
-                    platform_define = "-D_GLFW_X11";
-                    break :blk shared ++ [_]?[]const u8{
-                        "src/x11_init.c",
-                        "src/x11_monitor.c",
-                        "src/x11_window.c",
-                    };
+                    mod.linkSystemLibrary("X11", .{});
+                    mod.linkSystemLibrary("Xrandr", .{});
+                    mod.linkSystemLibrary("Xi", .{});
+                    mod.linkSystemLibrary("Xxf86vm", .{});
+                    mod.linkSystemLibrary("Xcursor", .{});
+                    mod.linkSystemLibrary("GL", .{});
                 }
+
+                mod.linkSystemLibrary("pthread", .{});
+                mod.linkSystemLibrary("dl", .{});
+                mod.linkSystemLibrary("m", .{});
             },
             .macos => {
-                platform_define = "-D_GLFW_COCOA";
-                break :blk [_]?[]const u8{
-                    "src/cocoa_init.m",
-                    "src/cocoa_joystick.m",
-                    "src/cocoa_monitor.m",
-                    "src/cocoa_time.c",
-                    "src/cocoa_window.m",
-                    "src/nsgl_context.m",
-                    "src/posix_module.c",
-                    "src/posix_poll.c",
-
-                    "src/posix_thread.c",
-                    "src/osmesa_context.c",
-                    "src/egl_context.c",
-                    null,
-                };
+                mod.linkFramework("Cocoa", .{});
+                mod.linkFramework("IOKit", .{});
+                mod.linkFramework("CoreFoundation", .{});
+                mod.linkFramework("CoreVideo", .{});
+                mod.linkFramework("QuartzCore", .{});
             },
             else => unreachable,
         }
-    };
-
-    // Shared source files
-    const common_sources = [_]?[]const u8{
-        "src/init.c",
-        "src/context.c",
-        "src/input.c",
-        "src/monitor.c",
-        "src/platform.c",
-        "src/vulkan.c",
-        "src/window.c",
-
-        "src/null_init.c",
-        "src/null_joystick.c",
-        "src/null_monitor.c",
-        "src/null_window.c",
-    };
-
-    // Source compilation
-    var optimize_flag: []const u8 = "";
-    if (exe.root_module.optimize) |optimize| {
-        switch (optimize) {
-            .Debug => optimize_flag = "-O0",
-            .ReleaseSafe => optimize_flag = "-O2",
-            .ReleaseSmall, .ReleaseFast => optimize_flag = "-O3",
-        }
-    }
-
-    const all_sources = platform_sources ++ common_sources;
-    for (all_sources) |src| {
-        engine.addCSourceFile(.{
-            .file = glfw.path(src orelse continue),
-            .flags = &.{ platform_define, optimize_flag },
-        });
-    }
-
-    // Platform specific libraries
-    switch (target.result.os.tag) {
-        .windows => {
-            engine.linkSystemLibrary("gdi32", .{});
-            engine.linkSystemLibrary("user32", .{});
-            engine.linkSystemLibrary("shell32", .{});
-        },
-        .linux => {
-            if (is_wayland) {
-                engine.linkSystemLibrary("wayland-client", .{});
-                engine.linkSystemLibrary("wayland-cursor", .{});
-                engine.linkSystemLibrary("wayland-egl", .{});
-                engine.linkSystemLibrary("egl", .{});
-                engine.linkSystemLibrary("drm", .{});
-                engine.linkSystemLibrary("gbm", .{});
-
-                // TODO: Wayland xdg header dependency resolution
-            } else {
-                engine.linkSystemLibrary("X11", .{});
-                engine.linkSystemLibrary("Xrandr", .{});
-                engine.linkSystemLibrary("Xi", .{});
-                engine.linkSystemLibrary("Xxf86vm", .{});
-                engine.linkSystemLibrary("Xcursor", .{});
-                engine.linkSystemLibrary("GL", .{});
-            }
-
-            engine.linkSystemLibrary("pthread", .{});
-            engine.linkSystemLibrary("dl", .{});
-            engine.linkSystemLibrary("m", .{});
-        },
-        .macos => {
-            engine.linkFramework("Cocoa", .{});
-            engine.linkFramework("IOKit", .{});
-            engine.linkFramework("CoreFoundation", .{});
-            engine.linkFramework("CoreVideo", .{});
-            engine.linkFramework("QuartzCore", .{});
-        },
-        else => unreachable,
     }
 }
 
@@ -271,7 +285,7 @@ fn addGraphicsDeps(
 fn addShaders(
     b: *std.Build,
     exe: *std.Build.Step.Compile,
-    test_step: *std.Build.Step,
+    test_steps: anytype,
     examples: anytype,
     comptime shaders: []const struct {
         name: []const u8,
@@ -279,11 +293,11 @@ fn addShaders(
         destination_name: []const u8,
     },
 ) !void {
+    const TestsType = @TypeOf(test_steps);
+    validateTupleStruct(TestsType);
+
     const ExamplesType = @TypeOf(examples);
-    const examples_type_info = @typeInfo(ExamplesType);
-    if (examples_type_info != .@"struct") {
-        @compileError("expected tuple or struct argument, found " ++ @typeName(ExamplesType));
-    }
+    validateTupleStruct(ExamplesType);
 
     const spirv_target = b.resolveTargetQuery(.{
         .cpu_arch = .spirv32,
@@ -323,10 +337,15 @@ fn addShaders(
         });
 
         exe.step.dependOn(&shader.step);
-        test_step.dependOn(&shader.step);
 
-        const fields_info = examples_type_info.@"struct".fields;
-        inline for (fields_info) |field| {
+        const tests_fields_info = @typeInfo(TestsType).@"struct".fields;
+        inline for (tests_fields_info) |field| {
+            const test_step: *std.Build.Step = @field(test_steps, field.name);
+            test_step.dependOn(&shader.step);
+        }
+
+        const examples_fields_info = @typeInfo(ExamplesType).@"struct".fields;
+        inline for (examples_fields_info) |field| {
             const executable: *std.Build.Step.Compile = @field(examples, field.name);
             executable.step.dependOn(&shader.step);
         }
@@ -423,4 +442,12 @@ fn addUtils(b: *std.Build) void {
     // Clean (because uninstall broken)
     const clean_step = b.step("clean", "Clean up emitted artifacts");
     clean_step.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
+}
+
+/// Asserts whether or not the given type is tuple struct type.
+fn validateTupleStruct(comptime T: type) void {
+    const type_info = @typeInfo(T);
+    if (type_info != .@"struct" or !type_info.@"struct".is_tuple) {
+        @compileError("expected tuple struct argument, found " ++ @typeName(T));
+    }
 }

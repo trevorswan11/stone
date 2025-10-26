@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const engine = b.addModule("core", .{
+    const engine = b.addModule("engine", .{
         .root_source_file = b.path("src/engine/root.zig"),
         .target = target,
         .optimize = optimize,
@@ -58,8 +58,8 @@ pub fn build(b: *std.Build) !void {
     // Prevent a console from opening on windows
     const disable_console = b.option(
         bool,
-        "window",
-        "Disables the opening on a console with the application on windows",
+        "disable-console",
+        "Disables the opening of a console with the application on windows",
     ) orelse (optimize == .ReleaseFast or optimize == .ReleaseSmall);
 
     if (target.result.os.tag == .windows and disable_console) {
@@ -103,15 +103,16 @@ fn addGraphicsDeps(
     if (target.result.os.tag == .linux and is_wayland) {
         @panic("Wayland is not currently supported");
     }
+    const engine = exe.root_module.import_table.get("engine") orelse @panic("Engine module not found");
 
     const vulkan = b.dependency("vulkan", .{
         .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
     }).module("vulkan-zig");
-    exe.root_module.addImport("vulkan", vulkan);
+    engine.addImport("vulkan", vulkan);
 
     const glfw = b.dependency("glfw", .{});
-    exe.addIncludePath(glfw.path("include/GLFW"));
-    exe.addIncludePath(glfw.path("src"));
+    engine.addIncludePath(glfw.path("include/GLFW"));
+    engine.addIncludePath(glfw.path("src"));
     var platform_define: []const u8 = undefined;
 
     // Platform specific source files and defines
@@ -216,7 +217,7 @@ fn addGraphicsDeps(
 
     const all_sources = platform_sources ++ common_sources;
     for (all_sources) |src| {
-        exe.root_module.addCSourceFile(.{
+        engine.addCSourceFile(.{
             .file = glfw.path(src orelse continue),
             .flags = &.{ platform_define, optimize_flag },
         });
@@ -225,39 +226,39 @@ fn addGraphicsDeps(
     // Platform specific libraries
     switch (target.result.os.tag) {
         .windows => {
-            exe.root_module.linkSystemLibrary("gdi32", .{});
-            exe.root_module.linkSystemLibrary("user32", .{});
-            exe.root_module.linkSystemLibrary("shell32", .{});
+            engine.linkSystemLibrary("gdi32", .{});
+            engine.linkSystemLibrary("user32", .{});
+            engine.linkSystemLibrary("shell32", .{});
         },
         .linux => {
             if (is_wayland) {
-                exe.root_module.linkSystemLibrary("wayland-client", .{});
-                exe.root_module.linkSystemLibrary("wayland-cursor", .{});
-                exe.root_module.linkSystemLibrary("wayland-egl", .{});
-                exe.root_module.linkSystemLibrary("egl", .{});
-                exe.root_module.linkSystemLibrary("drm", .{});
-                exe.root_module.linkSystemLibrary("gbm", .{});
+                engine.linkSystemLibrary("wayland-client", .{});
+                engine.linkSystemLibrary("wayland-cursor", .{});
+                engine.linkSystemLibrary("wayland-egl", .{});
+                engine.linkSystemLibrary("egl", .{});
+                engine.linkSystemLibrary("drm", .{});
+                engine.linkSystemLibrary("gbm", .{});
 
                 // TODO: Wayland xdg header dependency resolution
             } else {
-                exe.root_module.linkSystemLibrary("X11", .{});
-                exe.root_module.linkSystemLibrary("Xrandr", .{});
-                exe.root_module.linkSystemLibrary("Xi", .{});
-                exe.root_module.linkSystemLibrary("Xxf86vm", .{});
-                exe.root_module.linkSystemLibrary("Xcursor", .{});
-                exe.root_module.linkSystemLibrary("GL", .{});
+                engine.linkSystemLibrary("X11", .{});
+                engine.linkSystemLibrary("Xrandr", .{});
+                engine.linkSystemLibrary("Xi", .{});
+                engine.linkSystemLibrary("Xxf86vm", .{});
+                engine.linkSystemLibrary("Xcursor", .{});
+                engine.linkSystemLibrary("GL", .{});
             }
 
-            exe.root_module.linkSystemLibrary("pthread", .{});
-            exe.root_module.linkSystemLibrary("dl", .{});
-            exe.root_module.linkSystemLibrary("m", .{});
+            engine.linkSystemLibrary("pthread", .{});
+            engine.linkSystemLibrary("dl", .{});
+            engine.linkSystemLibrary("m", .{});
         },
         .macos => {
-            exe.root_module.linkFramework("Cocoa", .{});
-            exe.root_module.linkFramework("IOKit", .{});
-            exe.root_module.linkFramework("CoreFoundation", .{});
-            exe.root_module.linkFramework("CoreVideo", .{});
-            exe.root_module.linkFramework("QuartzCore", .{});
+            engine.linkFramework("Cocoa", .{});
+            engine.linkFramework("IOKit", .{});
+            engine.linkFramework("CoreFoundation", .{});
+            engine.linkFramework("CoreVideo", .{});
+            engine.linkFramework("QuartzCore", .{});
         },
         else => unreachable,
     }
@@ -293,6 +294,7 @@ fn addShaders(
     _ = spirv_target;
 
     try std.fs.cwd().makePath("zig-out/shaders/");
+    const engine = exe.root_module.import_table.get("engine") orelse @panic("Engine module not found");
 
     inline for (shaders) |shader_info| {
         // Once the above linked issue is resolved, this can be used for shader compilation
@@ -306,7 +308,7 @@ fn addShaders(
         //     .use_llvm = false,
         // });
 
-        // exe.root_module.addAnonymousImport(
+        // engine.addAnonymousImport(
         //     shader_info.name,
         //     .{ .root_source_file = vert_spv.getEmittedBin() },
         // );
@@ -329,7 +331,7 @@ fn addShaders(
             executable.step.dependOn(&shader.step);
         }
 
-        exe.root_module.addAnonymousImport(shader_info.name, .{
+        engine.addAnonymousImport(shader_info.name, .{
             .root_source_file = b.path(dest_path),
         });
     }

@@ -31,7 +31,8 @@ zig build run --release=fast
 |:------------|:-------------------------------------------------------------------------------------------------|
 | `build`     | Builds `stone`. Pass `--release=fast` for ReleaseFast.                                           |
 | `run`       | Build and run `stone`. Pass `--release=fast` for ReleaseFast.                                    |
-| `test`      | Run all unit tests.                                                                              |
+| `test`      | Run all core unit tests.                                                                         |
+| `gtest`     | Run all graphics unit tests.                                                                     |
 | `lint`      | Checks formatting of all source files excluding `build.zig`.                                     |
 | `fmt`       | Format all source code excluding `build.zig`.                                                    |
 | `cloc`      | Count the total lines of zig code. Requires [cloc](https://github.com/AlDanial/cloc).            |

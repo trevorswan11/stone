@@ -7,9 +7,11 @@ const glfw = engine.glfw;
 const vk = engine.vk;
 
 pub fn main() !void {
-    const allocator = std.heap.c_allocator;
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer if (gpa.deinit() == .leak) @panic("GPA Leaked");
+    const allocator = gpa.allocator();
 
-    var app: engine.example.HelloTriangle = try .init(allocator);
+    var app: engine.Stone = try .init(allocator);
     defer app.deinit();
 
     try app.run();

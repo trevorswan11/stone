@@ -40,6 +40,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .link_libc = true,
     });
+    addEngineOpts(b, engine);
 
     const stone = b.addExecutable(.{
         .name = "stone",
@@ -85,6 +86,24 @@ pub fn build(b: *std.Build) !void {
     });
     addUtils(b);
     addRunStep(b, stone);
+}
+
+/// Adds all relevant options to the engine module
+fn addEngineOpts(b: *std.Build, engine: *std.Build.Module) void {
+    const engine_opts = b.addOptions();
+
+    const verbose = b.option(
+        bool,
+        "verbose",
+        "Enable full verbose debug output in all modes",
+    ) orelse false;
+    engine_opts.addOption(
+        bool,
+        "verbose",
+        verbose,
+    );
+
+    engine.addOptions("config", engine_opts);
 }
 
 /// Adds all graphics-related dependencies.

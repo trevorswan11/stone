@@ -18,6 +18,11 @@ pub const device_extensions = [_][*:0]const u8{
     lib.extensions.khr_swapchain.name,
 };
 
+pub const dynamic_states = [_]lib.DynamicState{
+    .viewport,
+    .scissor,
+};
+
 const severity_strs = [_][:0]const u8{
     "verbose",
     "info",

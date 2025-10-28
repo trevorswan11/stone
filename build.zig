@@ -39,6 +39,9 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .imports = &.{
+            .{ .name = "core", .module = core },
+        },
     });
     addEngineOpts(b, engine);
 
@@ -81,8 +84,8 @@ pub fn build(b: *std.Build) !void {
 
     addGraphicsDeps(b, stone, .{ stone_tests.root_module, engine_tests.root_module }, target);
     try addShaders(b, stone, .{ test_step, gest_test }, compiles, &.{
-        .{ .name = "vertex_shader", .source_path = "shaders/vertex.zig", .destination_name = "vertex.spv" },
-        .{ .name = "fragment_shader", .source_path = "shaders/fragment.zig", .destination_name = "fragment.spv" },
+        .{ .name = "vertex_shader", .source_path = "src/shaders/vertex.zig", .destination_name = "vertex.spv" },
+        .{ .name = "fragment_shader", .source_path = "src/shaders/fragment.zig", .destination_name = "fragment.spv" },
     });
     addUtils(b);
     addRunStep(b, stone);

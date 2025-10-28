@@ -1,4 +1,4 @@
-const vulkan = @import("vulkan.zig");
+const vulkan = @import("vulkan/vulkan.zig");
 const vk = vulkan.lib;
 
 pub const c = @cImport({

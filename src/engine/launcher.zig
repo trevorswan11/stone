@@ -2,8 +2,10 @@ const std = @import("std");
 
 const config = @import("config");
 
-const glfw = @import("rendering/backend/glfw.zig");
-const vulkan = @import("rendering/backend/vulkan.zig");
+const glfw = @import("rendering/glfw.zig");
+
+const vulkan = @import("rendering/vulkan/vulkan.zig");
+const swapchain_ = @import("rendering/vulkan/swapchain.zig");
 
 const vk = vulkan.lib;
 const BaseWrapper = vk.BaseWrapper;
@@ -24,6 +26,7 @@ pub const Stone = struct {
     window: *glfw.Window = undefined,
 
     enabled_layers: std.ArrayList([*:0]const u8) = .empty,
+    enabled_extensions: std.ArrayList([*:0]const u8) = .empty,
 
     vkb: BaseWrapper = undefined,
     instance: Instance = undefined,
@@ -35,6 +38,10 @@ pub const Stone = struct {
 
     graphics_queue: vulkan.Queue = undefined,
     present_queue: vulkan.Queue = undefined,
+
+    swapchain: swapchain_.Swapchain = undefined,
+    swapchain_images: std.ArrayList(vk.Image) = .empty,
+    swapchain_image_views: std.ArrayList(vk.ImageView) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) !Stone {
         var self: Stone = .{
@@ -50,11 +57,20 @@ pub const Stone = struct {
     pub fn deinit(self: *Stone) void {
         defer {
             self.enabled_layers.deinit(self.allocator);
+            self.enabled_extensions.deinit(self.allocator);
+            self.swapchain_images.deinit(self.allocator);
+            self.swapchain_image_views.deinit(self.allocator);
+
             self.allocator.destroy(self.logical_device.wrapper);
             self.allocator.destroy(self.instance.wrapper);
             glfw.terminate();
         }
 
+        for (self.swapchain_image_views.items) |image_view| {
+            self.logical_device.destroyImageView(image_view, null);
+        }
+
+        self.swapchain.deinit(&self.logical_device);
         self.logical_device.destroyDevice(null);
         self.instance.destroySurfaceKHR(self.surface, null);
 
@@ -99,9 +115,13 @@ pub const Stone = struct {
     fn initVulkan(self: *Stone) !void {
         try self.createInstance();
         try self.setupDebugMessenger();
+
         try self.createSurface();
         try self.pickPhysicalDevice();
         try self.createLogicalDevice();
+
+        try self.createSwapchain();
+        try self.createImageViews();
     }
 
     /// Creates the instance proxy with extension and validation layer validation.
@@ -247,6 +267,8 @@ pub const Stone = struct {
 
         // Use the filtered queue families to create the device
         const device_features = self.physical_device.features;
+        try self.enabled_extensions.appendSlice(self.allocator, &vulkan.device_extensions);
+
         const device_create_info: vk.DeviceCreateInfo = .{
             .s_type = .device_create_info,
             .queue_create_info_count = @intCast(queue_create_infos.items.len),
@@ -254,6 +276,8 @@ pub const Stone = struct {
             .p_enabled_features = &device_features,
             .enabled_layer_count = @intCast(self.enabled_layers.items.len),
             .pp_enabled_layer_names = self.enabled_layers.items.ptr,
+            .enabled_extension_count = @intCast(self.enabled_extensions.items.len),
+            .pp_enabled_extension_names = self.enabled_extensions.items.ptr,
         };
 
         const device = try self.instance.createDevice(
@@ -268,5 +292,56 @@ pub const Stone = struct {
 
         self.graphics_queue = .init(self.logical_device, indices.graphics_family.?);
         self.present_queue = .init(self.logical_device, indices.present_family.?);
+    }
+
+    /// Creates a working swap chain based off of the window properties and chosen logical device.
+    pub fn createSwapchain(self: *Stone) !void {
+        var swapchain_support: swapchain_.SwapchainSupportDetails = try .init(&self.physical_device);
+        defer swapchain_support.deinit();
+        self.swapchain = try .init(self, swapchain_support);
+
+        const swapchain_images = try self.logical_device.getSwapchainImagesAllocKHR(
+            self.swapchain.handle,
+            self.allocator,
+        );
+        defer self.allocator.free(swapchain_images);
+
+        try self.swapchain_images.appendSlice(self.allocator, swapchain_images);
+    }
+
+    /// Creates all swapchain image views for every image for target usage.
+    pub fn createImageViews(self: *Stone) !void {
+        try self.swapchain_image_views.resize(self.allocator, self.swapchain_images.items.len);
+        for (
+            self.swapchain_image_views.items,
+            self.swapchain_images.items,
+        ) |*image_view, image| {
+            const image_view_create_info: vk.ImageViewCreateInfo = .{
+                .s_type = .image_view_create_info,
+                .image = image,
+                .view_type = .@"2d",
+                .format = self.swapchain.image_format,
+                .components = .{
+                    .r = .identity,
+                    .g = .identity,
+                    .b = .identity,
+                    .a = .identity,
+                },
+                .subresource_range = .{
+                    .aspect_mask = .{
+                        .color_bit = true,
+                    },
+                    .base_mip_level = 0,
+                    .level_count = 1,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+            };
+
+            image_view.* = try self.logical_device.createImageView(
+                &image_view_create_info,
+                null,
+            );
+        }
     }
 };

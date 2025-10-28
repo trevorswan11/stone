@@ -5,12 +5,17 @@ const config = @import("config");
 
 pub const lib = @import("vulkan");
 
-const glfw = @import("glfw.zig");
+const glfw = @import("../glfw.zig");
+const swapchain = @import("swapchain.zig");
 
 pub const enable_validation_layers = config.verbose or builtin.mode == .Debug;
 
 pub const validation_layers = [_][*:0]const u8{
     "VK_LAYER_KHRONOS_validation",
+};
+
+pub const device_extensions = [_][*:0]const u8{
+    lib.extensions.khr_swapchain.name,
 };
 
 const severity_strs = [_][:0]const u8{
@@ -212,12 +217,44 @@ pub const DeviceCandidate = struct {
         return indices;
     }
 
+    /// Verifies the specified extensions are present for the device.
+    pub fn checkDeviceExtensionSupport(self: DeviceCandidate) !bool {
+        const available_extensions = try self.instance.enumerateDeviceExtensionPropertiesAlloc(
+            self.device,
+            null,
+            self.allocator,
+        );
+        defer self.allocator.free(available_extensions);
+
+        for (device_extensions) |extension_name| {
+            for (available_extensions) |extension_properties| {
+                const ext_name_slice: []const u8 = std.mem.span(extension_name);
+                if (std.mem.eql(u8, ext_name_slice, extension_properties.extension_name[0..ext_name_slice.len])) {
+                    break;
+                }
+            } else return false;
+        }
+
+        return true;
+    }
+
     /// Checks if the device is suitable for the application.
     ///
     /// This is not considered when ordering the devices.
-    pub fn suitable(self: DeviceCandidate) !bool {
+    pub fn suitable(self: *DeviceCandidate) !bool {
         const indices = try self.findQueueFamilies();
-        return indices.complete();
+        const supported_exts = try self.checkDeviceExtensionSupport();
+
+        // Only check for the swap chain support if extensions pass
+        var swapchain_ok = false;
+        if (supported_exts) {
+            var swapchain_support: swapchain.SwapchainSupportDetails = try .init(self);
+            defer swapchain_support.deinit();
+
+            swapchain_ok = swapchain_support.formats.len != 0 and swapchain_support.present_modes.len != 0;
+        }
+
+        return indices.complete() and supported_exts and swapchain_ok;
     }
 };
 

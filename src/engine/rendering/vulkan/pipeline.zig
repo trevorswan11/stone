@@ -47,6 +47,9 @@ pub const Graphics = struct {
     pipeline: vk.Pipeline = undefined,
     layout: vk.PipelineLayout = undefined,
 
+    viewport_count: usize = undefined,
+    scissor_count: usize = undefined,
+
     /// Fully builds the graphics pipeline from scratch.
     ///
     /// Note that Vulkan pipelines are practically immutable and changes require full reinitialization.
@@ -99,25 +102,6 @@ pub const Graphics = struct {
             .primitive_restart_enable = .false,
         };
 
-        // TODO: Set in createCommandBuffers
-        // const viewport: vk.Viewport = .{
-        //     .x = 0.0,
-        //     .y = 0.0,
-        //     .width = @floatFromInt(stone.swapchain.extent.width),
-        //     .height = @floatFromInt(stone.swapchain.extent.height),
-        //     .min_depth = 0.0,
-        //     .max_depth = 1.0,
-        // };
-
-        // // The scissor acts as a filter for the rasterizer to ignore
-        // const scissor: vk.Rect2D = .{
-        //     .extent = stone.swapchain.extent,
-        //     .offset = .{
-        //         .x = 0,
-        //         .y = 0,
-        //     },
-        // };
-
         // This allows us to change a small subset of the pipeline with recreating it
         const dynamic_state: vk.PipelineDynamicStateCreateInfo = .{
             .s_type = .pipeline_dynamic_state_create_info,
@@ -126,10 +110,12 @@ pub const Graphics = struct {
         };
 
         // Since dynamic states are used, we need only specify viewport/scissor at creation time
+        self.viewport_count = 1;
+        self.scissor_count = 1;
         const viewport_state: vk.PipelineViewportStateCreateInfo = .{
             .s_type = .pipeline_viewport_state_create_info,
-            .viewport_count = 1,
-            .scissor_count = 1,
+            .viewport_count = @intCast(self.viewport_count),
+            .scissor_count = @intCast(self.scissor_count),
         };
 
         const rasterizer: vk.PipelineRasterizationStateCreateInfo = .{
@@ -234,8 +220,8 @@ pub const Graphics = struct {
         return if (result != .success) error.PipelineCreateFailed else self;
     }
 
-    pub fn deinit(self: *Graphics, stone: *launcher.Stone) void {
-        stone.logical_device.destroyPipeline(self.pipeline, null);
-        stone.logical_device.destroyPipelineLayout(self.layout, null);
+    pub fn deinit(self: *Graphics, logical_device: *vk.DeviceProxy) void {
+        logical_device.destroyPipeline(self.pipeline, null);
+        logical_device.destroyPipelineLayout(self.layout, null);
     }
 };

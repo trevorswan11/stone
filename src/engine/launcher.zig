@@ -7,6 +7,8 @@ const glfw = @import("rendering/glfw.zig");
 const vulkan = @import("rendering/vulkan/vulkan.zig");
 const swapchain_ = @import("rendering/vulkan/swapchain.zig");
 const pipeline = @import("rendering/vulkan/pipeline.zig");
+const draw = @import("rendering/vulkan/draw.zig");
+const sync = @import("rendering/vulkan/sync.zig");
 
 const vk = vulkan.lib;
 const BaseWrapper = vk.BaseWrapper;
@@ -43,6 +45,9 @@ pub const Stone = struct {
     render_pass: vk.RenderPass = undefined,
     graphics_pipeline: pipeline.Graphics = undefined,
 
+    command: draw.Command = undefined,
+    syncs: sync.Syncs = undefined,
+
     pub fn init(allocator: std.mem.Allocator) !Stone {
         var self: Stone = .{
             .allocator = allocator,
@@ -57,6 +62,8 @@ pub const Stone = struct {
 
     pub fn deinit(self: *Stone) void {
         defer {
+            glfw.destroyWindow(self.window);
+
             self.swapchain_lists.deinit(self.allocator);
 
             self.allocator.destroy(self.logical_device.wrapper);
@@ -64,11 +71,14 @@ pub const Stone = struct {
             glfw.terminate();
         }
 
+        self.syncs.deinit(&self.logical_device);
+        self.logical_device.destroyCommandPool(self.command.pool, null);
+
         for (self.swapchain_lists.framebuffers.items) |framebuffer| {
             self.logical_device.destroyFramebuffer(framebuffer, null);
         }
 
-        self.graphics_pipeline.deinit(self);
+        self.graphics_pipeline.deinit(&self.logical_device);
         self.logical_device.destroyRenderPass(self.render_pass, null);
         for (self.swapchain_lists.image_views.items) |image_view| {
             self.logical_device.destroyImageView(image_view, null);
@@ -82,14 +92,15 @@ pub const Stone = struct {
             self.instance.destroyDebugUtilsMessengerEXT(self.debug_messenger, null);
         }
         self.instance.destroyInstance(null);
-
-        glfw.destroyWindow(self.window);
     }
 
     pub fn run(self: *Stone) !void {
         while (glfw.windowShouldClose(self.window) != glfw.true) {
             glfw.pollEvents();
+            try draw.drawFrame(self);
         }
+
+        try self.logical_device.deviceWaitIdle();
     }
 
     /// Initializes the GLFW window without an OpenGL context.
@@ -128,6 +139,11 @@ pub const Stone = struct {
         try self.createImageViews();
         try self.createRenderPass();
         try self.createGraphicsPipeline();
+        try self.createFramebuffers();
+
+        try self.createCommandPool();
+        try self.createCommandBuffer();
+        try self.createSyncObjects();
     }
 
     /// Creates the instance proxy with extension and validation layer validation.
@@ -400,7 +416,7 @@ pub const Stone = struct {
 
     /// Creates the graphics pipeline for the application.
     fn createGraphicsPipeline(self: *Stone) !void {
-        self.graphics_pipeline = try pipeline.Graphics.init(self);
+        self.graphics_pipeline = try .init(self);
     }
 
     /// Creates the swapchain's framebuffers.
@@ -412,7 +428,7 @@ pub const Stone = struct {
 
         for (
             self.swapchain_lists.framebuffers.items,
-            self.swapchain_lists.image_views,
+            self.swapchain_lists.image_views.items,
         ) |*framebuffer, image_view| {
             const attachments = [_]vk.ImageView{image_view};
 
@@ -431,5 +447,41 @@ pub const Stone = struct {
                 null,
             );
         }
+    }
+
+    /// Creates the command pools which manage memory related to buffer storage.
+    fn createCommandPool(self: *Stone) !void {
+        const pool_info: vk.CommandPoolCreateInfo = .{
+            .s_type = .command_pool_create_info,
+            .flags = .{
+                .reset_command_buffer_bit = true,
+            },
+            .queue_family_index = self.graphics_queue.family,
+        };
+
+        self.command.pool = try self.logical_device.createCommandPool(
+            &pool_info,
+            null,
+        );
+    }
+
+    /// Creates the applications command buffer whose lifetime is tied to the command pool.
+    fn createCommandBuffer(self: *Stone) !void {
+        const alloc_info: vk.CommandBufferAllocateInfo = .{
+            .s_type = .command_buffer_allocate_info,
+            .command_pool = self.command.pool,
+            .level = .primary,
+            .command_buffer_count = 1,
+        };
+
+        try self.logical_device.allocateCommandBuffers(
+            &alloc_info,
+            @ptrCast(&self.command.buffer),
+        );
+    }
+
+    /// Creates the synchronous objects required for Vulkan to work properly.
+    pub fn createSyncObjects(self: *Stone) !void {
+        self.syncs = try .init(self);
     }
 };

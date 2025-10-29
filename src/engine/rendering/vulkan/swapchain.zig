@@ -73,6 +73,18 @@ pub const Swapchain = struct {
     }
 };
 
+pub const SwapchainLists = struct {
+    images: std.ArrayList(vk.Image) = .empty,
+    image_views: std.ArrayList(vk.ImageView) = .empty,
+    framebuffers: std.ArrayList(vk.Framebuffer) = .empty,
+
+    pub fn deinit(self: *SwapchainLists, allocator: std.mem.Allocator) void {
+        self.images.deinit(allocator);
+        self.image_views.deinit(allocator);
+        self.framebuffers.deinit(allocator);
+    }
+};
+
 pub const SwapchainSupportDetails = struct {
     device: *vulkan.DeviceCandidate,
 

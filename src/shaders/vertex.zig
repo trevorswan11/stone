@@ -15,7 +15,7 @@ const colors: [3]@Vector(3, f32) = .{
 
 extern var frag_color: @Vector(3, f32) addrspace(.output);
 
-pub fn main() callconv(.spirv_vertex) void {
+export fn main() callconv(.spirv_vertex) void {
     gpu.position_out.* = .{
         positions[gpu.vertex_index][0],
         positions[gpu.vertex_index][1],
@@ -23,5 +23,6 @@ pub fn main() callconv(.spirv_vertex) void {
         1.0,
     };
 
+    gpu.location(&frag_color, 0);
     frag_color = colors[gpu.vertex_index];
 }

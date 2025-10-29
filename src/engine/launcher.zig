@@ -16,9 +16,6 @@ const DeviceWrapper = vk.DeviceWrapper;
 const Instance = vk.InstanceProxy;
 const LogicalDevice = vk.DeviceProxy;
 
-const vertex_shader align(@alignOf(u32)) = @embedFile("vertex_shader").*;
-const fragment_shader align(@alignOf(u32)) = @embedFile("fragment_shader").*;
-
 const app_name = "Stone";
 
 const window_width: u32 = 800;
@@ -41,10 +38,10 @@ pub const Stone = struct {
     present_queue: vulkan.Queue = undefined,
 
     swapchain: swapchain_.Swapchain = undefined,
-    swapchain_images: std.ArrayList(vk.Image) = .empty,
-    swapchain_image_views: std.ArrayList(vk.ImageView) = .empty,
+    swapchain_lists: swapchain_.SwapchainLists = .{},
 
-    pipeline_layout: vk.PipelineLayout = undefined,
+    render_pass: vk.RenderPass = undefined,
+    graphics_pipeline: pipeline.Graphics = undefined,
 
     pub fn init(allocator: std.mem.Allocator) !Stone {
         var self: Stone = .{
@@ -60,16 +57,20 @@ pub const Stone = struct {
 
     pub fn deinit(self: *Stone) void {
         defer {
-            self.swapchain_images.deinit(self.allocator);
-            self.swapchain_image_views.deinit(self.allocator);
+            self.swapchain_lists.deinit(self.allocator);
 
             self.allocator.destroy(self.logical_device.wrapper);
             self.allocator.destroy(self.instance.wrapper);
             glfw.terminate();
         }
 
-        self.logical_device.destroyPipelineLayout(self.pipeline_layout, null);
-        for (self.swapchain_image_views.items) |image_view| {
+        for (self.swapchain_lists.framebuffers.items) |framebuffer| {
+            self.logical_device.destroyFramebuffer(framebuffer, null);
+        }
+
+        self.graphics_pipeline.deinit(self);
+        self.logical_device.destroyRenderPass(self.render_pass, null);
+        for (self.swapchain_lists.image_views.items) |image_view| {
             self.logical_device.destroyImageView(image_view, null);
         }
 
@@ -125,6 +126,7 @@ pub const Stone = struct {
 
         try self.createSwapchain();
         try self.createImageViews();
+        try self.createRenderPass();
         try self.createGraphicsPipeline();
     }
 
@@ -143,7 +145,7 @@ pub const Stone = struct {
             .application_version = vulkan.makeVersion(0, 1, 0, 0),
             .p_engine_name = "No Engine",
             .engine_version = vulkan.makeVersion(0, 1, 0, 0),
-            .api_version = vulkan.version(vk.API_VERSION_1_0),
+            .api_version = vulkan.version(vk.API_VERSION_1_2),
         };
 
         var extensions = try self.getRequiredExtensions();
@@ -252,7 +254,7 @@ pub const Stone = struct {
         var queue_create_infos: std.ArrayList(vk.DeviceQueueCreateInfo) = .empty;
         defer queue_create_infos.deinit(self.allocator);
 
-        var unique_queue_families = std.AutoArrayHashMap(u32, void).init(self.allocator);
+        var unique_queue_families: std.AutoArrayHashMap(u32, void) = .init(self.allocator);
         defer unique_queue_families.deinit();
         try unique_queue_families.put(indices.graphics_family.?, {});
         try unique_queue_families.put(indices.present_family.?, {});
@@ -267,8 +269,14 @@ pub const Stone = struct {
             });
         }
 
-        // Use the filtered queue families to create the device
+        // Use the filtered queue families to create the device - add shader_int_8 to appease the vulkan overlords
         const device_features = self.physical_device.features;
+        const vk12_features: vk.PhysicalDeviceVulkan12Features = .{
+            .s_type = .physical_device_vulkan_1_2_features,
+            .p_next = null,
+            .shader_int_8 = .true,
+        };
+
         const device_create_info: vk.DeviceCreateInfo = .{
             .s_type = .device_create_info,
             .queue_create_info_count = @intCast(queue_create_infos.items.len),
@@ -278,6 +286,7 @@ pub const Stone = struct {
             .pp_enabled_layer_names = &vulkan.validation_layers,
             .enabled_extension_count = @intCast(vulkan.device_extensions.len),
             .pp_enabled_extension_names = &vulkan.device_extensions,
+            .p_next = &vk12_features,
         };
 
         const device = try self.instance.createDevice(
@@ -295,7 +304,7 @@ pub const Stone = struct {
     }
 
     /// Creates a working swap chain based off of the window properties and chosen logical device.
-    pub fn createSwapchain(self: *Stone) !void {
+    fn createSwapchain(self: *Stone) !void {
         var swapchain_support: swapchain_.SwapchainSupportDetails = try .init(&self.physical_device);
         defer swapchain_support.deinit();
         self.swapchain = try .init(self, swapchain_support);
@@ -306,15 +315,18 @@ pub const Stone = struct {
         );
         defer self.allocator.free(swapchain_images);
 
-        try self.swapchain_images.appendSlice(self.allocator, swapchain_images);
+        try self.swapchain_lists.images.appendSlice(self.allocator, swapchain_images);
     }
 
     /// Creates all swapchain image views for every image for target usage.
-    pub fn createImageViews(self: *Stone) !void {
-        try self.swapchain_image_views.resize(self.allocator, self.swapchain_images.items.len);
+    fn createImageViews(self: *Stone) !void {
+        try self.swapchain_lists.image_views.resize(
+            self.allocator,
+            self.swapchain_lists.images.items.len,
+        );
         for (
-            self.swapchain_image_views.items,
-            self.swapchain_images.items,
+            self.swapchain_lists.image_views.items,
+            self.swapchain_lists.images.items,
         ) |*image_view, image| {
             const image_view_create_info: vk.ImageViewCreateInfo = .{
                 .s_type = .image_view_create_info,
@@ -345,166 +357,79 @@ pub const Stone = struct {
         }
     }
 
-    /// Creates the graphics pipeline for the application.
-    ///
-    /// Note that Vulkan pipelines are practically immutable and changes require full reinitialization.
-    /// This does allow for more aggressive optimizations, however.
-    pub fn createGraphicsPipeline(self: *Stone) !void {
-        const vert = try pipeline.createShaderModule(self, &vertex_shader);
-        defer self.logical_device.destroyShaderModule(vert, null);
-
-        const vert_stage_info: vk.PipelineShaderStageCreateInfo = .{
-            .s_type = .pipeline_shader_stage_create_info,
-            .stage = .{
-                .vertex_bit = true,
-            },
-            .module = vert,
-            .p_name = "main",
-        };
-
-        const frag = try pipeline.createShaderModule(self, &fragment_shader);
-        defer self.logical_device.destroyShaderModule(frag, null);
-
-        const frag_stage_info: vk.PipelineShaderStageCreateInfo = .{
-            .s_type = .pipeline_shader_stage_create_info,
-            .stage = .{
-                .fragment_bit = true,
-            },
-            .module = frag,
-            .p_name = "main",
-        };
-
-        const shader_stages = [_]vk.PipelineShaderStageCreateInfo{
-            vert_stage_info,
-            frag_stage_info,
-        };
-        _ = shader_stages;
-
-        // TODO: Update when vertex shader is not hard-coded
-        const vertex_input_info: vk.PipelineVertexInputStateCreateInfo = .{
-            .s_type = .pipeline_vertex_input_state_create_info,
-            .vertex_binding_description_count = 0,
-            .p_vertex_binding_descriptions = null,
-            .vertex_attribute_description_count = 0,
-            .p_vertex_attribute_descriptions = null,
-        };
-        _ = vertex_input_info;
-
-        // TODO: Update when drawing more than just triangles
-        const input_assembly: vk.PipelineInputAssemblyStateCreateInfo = .{
-            .s_type = .pipeline_input_assembly_state_create_info,
-            .topology = .triangle_list,
-            .primitive_restart_enable = .false,
-        };
-        _ = input_assembly;
-
-        // TODO: Set in createCommandBuffers
-        // const viewport: vk.Viewport = .{
-        //     .x = 0.0,
-        //     .y = 0.0,
-        //     .width = @floatFromInt(self.swapchain.extent.width),
-        //     .height = @floatFromInt(self.swapchain.extent.height),
-        //     .min_depth = 0.0,
-        //     .max_depth = 1.0,
-        // };
-
-        // // The scissor acts as a filter for the rasterizer to ignore
-        // const scissor: vk.Rect2D = .{
-        //     .extent = self.swapchain.extent,
-        //     .offset = .{
-        //         .x = 0,
-        //         .y = 0,
-        //     },
-        // };
-
-        // This allows us to change a small subset of the pipeline with recreating it
-        const dynamic_state: vk.PipelineDynamicStateCreateInfo = .{
-            .s_type = .pipeline_dynamic_state_create_info,
-            .dynamic_state_count = @intCast(vulkan.dynamic_states.len),
-            .p_dynamic_states = &vulkan.dynamic_states,
-        };
-        _ = dynamic_state;
-
-        // Since dynamic states are used, we need only specify viewport/scissor at creation time
-        const viewport_state: vk.PipelineViewportStateCreateInfo = .{
-            .s_type = .pipeline_viewport_state_create_info,
-            .viewport_count = 1,
-            .scissor_count = 1,
-        };
-        _ = viewport_state;
-
-        const rasterizer: vk.PipelineRasterizationStateCreateInfo = .{
-            .s_type = .pipeline_rasterization_state_create_info,
-            .depth_clamp_enable = .false,
-            .rasterizer_discard_enable = .false,
-
-            .polygon_mode = .fill,
-            .line_width = 1.0,
-
-            .cull_mode = .{
-                .back_bit = true,
-            },
-            .front_face = .clockwise,
-
-            .depth_bias_enable = .false,
-            .depth_bias_constant_factor = 0.0,
-            .depth_bias_clamp = 0.0,
-            .depth_bias_slope_factor = 0.0,
-        };
-        _ = rasterizer;
-
-        // Configures multisampling - approach to anti-aliasing. Disabled for now
-        const multisampling: vk.PipelineMultisampleStateCreateInfo = .{
-            .s_type = .pipeline_multisample_state_create_info,
-            .sample_shading_enable = .false,
-            .rasterization_samples = .{
+    /// Tells vulkan about the framebuffer attachments that will be used.
+    fn createRenderPass(self: *Stone) !void {
+        const color_attachment = [_]vk.AttachmentDescription{.{
+            .format = self.swapchain.image_format,
+            .samples = .{
                 .@"1_bit" = true,
             },
-            .min_sample_shading = 1.0,
-            .p_sample_mask = null,
-            .alpha_to_coverage_enable = .false,
-            .alpha_to_one_enable = .false,
-        };
-        _ = multisampling;
+            .load_op = .clear,
+            .store_op = .store,
+            .stencil_load_op = .dont_care,
+            .stencil_store_op = .dont_care,
+            .initial_layout = .undefined,
+            .final_layout = .present_src_khr,
+        }};
 
-        const color_blend_attachment: vk.PipelineColorBlendAttachmentState = .{
-            .color_write_mask = .{
-                .r_bit = true,
-                .g_bit = true,
-                .b_bit = true,
-                .a_bit = true,
-            },
-            // TODO: Decide if blending is desired, the settings below are good
-            .blend_enable = .false,
-            .src_color_blend_factor = .one,
-            .dst_color_blend_factor = .zero,
-            .color_blend_op = .add,
-            .src_alpha_blend_factor = .one,
-            .dst_alpha_blend_factor = .zero,
-            .alpha_blend_op = .add,
-        };
+        const color_attachment_ref = [_]vk.AttachmentReference{.{
+            .attachment = 0,
+            .layout = .color_attachment_optimal,
+        }};
 
-        const color_blending: vk.PipelineColorBlendStateCreateInfo = .{
-            .s_type = .pipeline_color_blend_state_create_info,
-            .logic_op_enable = .false,
-            .logic_op = .copy,
-            .attachment_count = 1,
-            .p_attachments = @ptrCast(&color_blend_attachment),
-            .blend_constants = .{ 0.0, 0.0, 0.0, 0.0 },
-        };
-        _ = color_blending;
+        const subpass = [_]vk.SubpassDescription{.{
+            .pipeline_bind_point = .graphics,
+            .color_attachment_count = @intCast(color_attachment_ref.len),
+            .p_color_attachments = &color_attachment_ref,
+        }};
 
-        const pipeline_layout_info: vk.PipelineLayoutCreateInfo = .{
-            .s_type = .pipeline_layout_create_info,
-            .set_layout_count = 0,
-            .p_set_layouts = null,
-            .push_constant_range_count = 0,
-            .p_push_constant_ranges = null,
+        // Creates the render pass object for use in the remainder of the program
+        const render_pass_info: vk.RenderPassCreateInfo = .{
+            .s_type = .render_pass_create_info,
+            .attachment_count = @intCast(color_attachment.len),
+            .p_attachments = &color_attachment,
+            .subpass_count = @intCast(subpass.len),
+            .p_subpasses = &subpass,
         };
 
-        self.pipeline_layout = try self.logical_device.createPipelineLayout(
-            &pipeline_layout_info,
+        self.render_pass = try self.logical_device.createRenderPass(
+            &render_pass_info,
             null,
         );
+    }
+
+    /// Creates the graphics pipeline for the application.
+    fn createGraphicsPipeline(self: *Stone) !void {
+        self.graphics_pipeline = try pipeline.Graphics.init(self);
+    }
+
+    /// Creates the swapchain's framebuffers.
+    fn createFramebuffers(self: *Stone) !void {
+        try self.swapchain_lists.framebuffers.resize(
+            self.allocator,
+            self.swapchain_lists.image_views.items.len,
+        );
+
+        for (
+            self.swapchain_lists.framebuffers.items,
+            self.swapchain_lists.image_views,
+        ) |*framebuffer, image_view| {
+            const attachments = [_]vk.ImageView{image_view};
+
+            const framebuffer_info: vk.FramebufferCreateInfo = .{
+                .s_type = .framebuffer_create_info,
+                .render_pass = self.render_pass,
+                .attachment_count = @intCast(attachments.len),
+                .p_attachments = &attachments,
+                .width = self.swapchain.extent.width,
+                .height = self.swapchain.extent.height,
+                .layers = 1,
+            };
+
+            framebuffer.* = try self.logical_device.createFramebuffer(
+                &framebuffer_info,
+                null,
+            );
+        }
     }
 };

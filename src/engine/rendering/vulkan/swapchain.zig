@@ -68,20 +68,28 @@ pub const Swapchain = struct {
         return self;
     }
 
-    pub fn deinit(self: Swapchain, logical_device: *vk.DeviceProxy) void {
-        logical_device.destroySwapchainKHR(self.handle, null);
+    pub fn deinit(self: Swapchain, stone: *launcher.Stone) void {
+        defer stone.logical_device.destroySwapchainKHR(self.handle, null);
+
+        for (stone.swapchain_lists.framebuffers) |framebuffer| {
+            stone.logical_device.destroyFramebuffer(framebuffer, null);
+        }
+
+        for (stone.swapchain_lists.image_views) |image_view| {
+            stone.logical_device.destroyImageView(image_view, null);
+        }
     }
 };
 
 pub const SwapchainLists = struct {
-    images: std.ArrayList(vk.Image) = .empty,
-    image_views: std.ArrayList(vk.ImageView) = .empty,
-    framebuffers: std.ArrayList(vk.Framebuffer) = .empty,
+    images: []vk.Image = undefined,
+    image_views: []vk.ImageView = undefined,
+    framebuffers: []vk.Framebuffer = undefined,
 
     pub fn deinit(self: *SwapchainLists, allocator: std.mem.Allocator) void {
-        self.images.deinit(allocator);
-        self.image_views.deinit(allocator);
-        self.framebuffers.deinit(allocator);
+        allocator.free(self.images);
+        allocator.free(self.image_views);
+        allocator.free(self.framebuffers);
     }
 };
 
@@ -96,14 +104,13 @@ pub const SwapchainSupportDetails = struct {
     /// - Basic surface capabilities
     /// - Surface formats (pixel format, color space)
     /// - Available presentation modes
-    pub fn init(device: *vulkan.DeviceCandidate) !SwapchainSupportDetails {
+    pub fn init(device: *vulkan.DeviceCandidate, allocator: std.mem.Allocator) !SwapchainSupportDetails {
         var self: SwapchainSupportDetails = .{
             .device = device,
         };
 
-        const allocator = device.allocator;
         const p_dev = device.device;
-        const surface = device.surface.*;
+        const surface = device.surface;
 
         self.capabilities = try device.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(
             p_dev,
@@ -125,9 +132,9 @@ pub const SwapchainSupportDetails = struct {
         return self;
     }
 
-    pub fn deinit(self: *SwapchainSupportDetails) void {
-        self.device.allocator.free(self.formats);
-        self.device.allocator.free(self.present_modes);
+    pub fn deinit(self: *SwapchainSupportDetails, allocator: std.mem.Allocator) void {
+        allocator.free(self.formats);
+        allocator.free(self.present_modes);
     }
 
     /// Attempts to select format `VK_FORMAT_B8G8R8A8_SRGB` with color space `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR`.

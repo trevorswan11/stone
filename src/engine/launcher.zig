@@ -23,6 +23,17 @@ const app_name = "Stone";
 const window_width: u32 = 800;
 const window_height: u32 = 600;
 
+pub fn framebufferResizeCallback(
+    window: ?*glfw.Window,
+    width: c_int,
+    height: c_int,
+) callconv(.c) void {
+    _ = .{ width, height };
+    const app_window = glfw.getWindowUserPointer(window.?).?;
+    const stone: *Stone = @ptrCast(@alignCast(app_window));
+    stone.framebuffer_resized = true;
+}
+
 pub const Stone = struct {
     allocator: std.mem.Allocator,
 
@@ -41,6 +52,7 @@ pub const Stone = struct {
 
     swapchain: swapchain_.Swapchain = undefined,
     swapchain_lists: swapchain_.SwapchainLists = .{},
+    framebuffer_resized: bool = false,
 
     render_pass: vk.RenderPass = undefined,
     graphics_pipeline: pipeline.Graphics = undefined,
@@ -65,26 +77,20 @@ pub const Stone = struct {
             glfw.destroyWindow(self.window);
 
             self.swapchain_lists.deinit(self.allocator);
+            self.command.deinit(self.allocator);
 
             self.allocator.destroy(self.logical_device.wrapper);
             self.allocator.destroy(self.instance.wrapper);
             glfw.terminate();
         }
 
-        self.syncs.deinit(&self.logical_device);
+        self.syncs.deinit(self.allocator, &self.logical_device);
         self.logical_device.destroyCommandPool(self.command.pool, null);
-
-        for (self.swapchain_lists.framebuffers.items) |framebuffer| {
-            self.logical_device.destroyFramebuffer(framebuffer, null);
-        }
 
         self.graphics_pipeline.deinit(&self.logical_device);
         self.logical_device.destroyRenderPass(self.render_pass, null);
-        for (self.swapchain_lists.image_views.items) |image_view| {
-            self.logical_device.destroyImageView(image_view, null);
-        }
 
-        self.swapchain.deinit(&self.logical_device);
+        self.swapchain.deinit(self);
         self.logical_device.destroyDevice(null);
         self.instance.destroySurfaceKHR(self.surface, null);
 
@@ -115,7 +121,6 @@ pub const Stone = struct {
         }
 
         glfw.windowHint(glfw.client_api, glfw.no_api);
-        glfw.windowHint(glfw.resizable, glfw.false);
 
         self.window = glfw.createWindow(
             window_width,
@@ -124,6 +129,12 @@ pub const Stone = struct {
             null,
             null,
         ) orelse return error.WindowInitializationFailed;
+
+        glfw.setWindowUserPointer(self.window, self);
+        _ = glfw.setFramebufferSizeCallback(
+            self.window,
+            framebufferResizeCallback,
+        );
     }
 
     /// Initializes vulkan and required objects.
@@ -142,7 +153,7 @@ pub const Stone = struct {
         try self.createFramebuffers();
 
         try self.createCommandPool();
-        try self.createCommandBuffer();
+        try self.createCommandBuffers();
         try self.createSyncObjects();
     }
 
@@ -225,6 +236,9 @@ pub const Stone = struct {
         ) != .success) {
             return error.SurfaceInitFailed;
         }
+
+        // This doesn't apply any immediate changes but prevents future stale usage
+        self.physical_device.surface = self.surface;
     }
 
     /// Looks for and selects the graphics card on the system that supports the needed features.
@@ -243,13 +257,13 @@ pub const Stone = struct {
         defer device_heap.deinit();
 
         for (devices) |device| {
-            try device_heap.add(.init(self.allocator, &self.instance, &self.surface, device));
+            try device_heap.add(.init(self.instance, self.surface, device));
         }
 
         // Removing items here is slow, we don't need that now
         var best_candidate: vulkan.DeviceCandidate = undefined;
         for (device_heap.items) |*candidate| {
-            if (try candidate.suitable()) {
+            if (try candidate.suitable(self.allocator)) {
                 best_candidate = candidate.*;
                 break;
             }
@@ -263,7 +277,7 @@ pub const Stone = struct {
 
     /// Choses a logical device to interface with the chosen physical device.
     fn createLogicalDevice(self: *Stone) !void {
-        const indices = try self.physical_device.findQueueFamilies();
+        const indices = try self.physical_device.findQueueFamilies(self.allocator);
         std.debug.assert(indices.complete());
 
         // Create queues from both families, skipping duplicates
@@ -320,9 +334,11 @@ pub const Stone = struct {
     }
 
     /// Creates a working swap chain based off of the window properties and chosen logical device.
+    ///
+    /// If free_old is true, then all of the swap chain lists and framebuffers are deallocated.
     fn createSwapchain(self: *Stone) !void {
-        var swapchain_support: swapchain_.SwapchainSupportDetails = try .init(&self.physical_device);
-        defer swapchain_support.deinit();
+        var swapchain_support: swapchain_.SwapchainSupportDetails = try .init(&self.physical_device, self.allocator);
+        defer swapchain_support.deinit(self.allocator);
         self.swapchain = try .init(self, swapchain_support);
 
         const swapchain_images = try self.logical_device.getSwapchainImagesAllocKHR(
@@ -331,18 +347,57 @@ pub const Stone = struct {
         );
         defer self.allocator.free(swapchain_images);
 
-        try self.swapchain_lists.images.appendSlice(self.allocator, swapchain_images);
+        self.swapchain_lists.images = try self.allocator.alloc(vk.Image, swapchain_images.len);
+        for (swapchain_images, self.swapchain_lists.images) |swap_image, *image| {
+            image.* = swap_image;
+        }
+    }
+
+    /// Recreates the swapchain, rebuilding the render pass and pipeline to account for:
+    /// - Window resizes
+    /// - Minimization
+    /// - Standard -> HDR shifts
+    pub fn recreateSwapchain(self: *Stone) !void {
+        // We only want to resize when the window size is valid (not minimized)
+        var width: c_int = undefined;
+        var height: c_int = undefined;
+        glfw.getFramebufferSize(self.window, &width, &height);
+        while (width == 0 or height == 0) {
+            glfw.getFramebufferSize(self.window, &width, &height);
+            glfw.waitEvents();
+        }
+
+        try self.logical_device.deviceWaitIdle();
+
+        // Clean up everything that depends on the old swapchain
+        self.swapchain.deinit(self);
+        self.swapchain_lists.deinit(self.allocator);
+
+        self.instance.destroySurfaceKHR(self.surface, null);
+        self.graphics_pipeline.deinit(&self.logical_device);
+        self.logical_device.destroyRenderPass(self.render_pass, null);
+
+        // Rebuild the swapchain
+        try self.createSurface();
+
+        try self.createSwapchain();
+        try self.createImageViews();
+
+        try self.createRenderPass();
+        try self.createGraphicsPipeline();
+        try self.createFramebuffers();
     }
 
     /// Creates all swapchain image views for every image for target usage.
     fn createImageViews(self: *Stone) !void {
-        try self.swapchain_lists.image_views.resize(
-            self.allocator,
-            self.swapchain_lists.images.items.len,
+        self.swapchain_lists.image_views = try self.allocator.alloc(
+            vk.ImageView,
+            self.swapchain_lists.images.len,
         );
+
         for (
-            self.swapchain_lists.image_views.items,
-            self.swapchain_lists.images.items,
+            self.swapchain_lists.image_views,
+            self.swapchain_lists.images,
         ) |*image_view, image| {
             const image_view_create_info: vk.ImageViewCreateInfo = .{
                 .s_type = .image_view_create_info,
@@ -421,14 +476,14 @@ pub const Stone = struct {
 
     /// Creates the swapchain's framebuffers.
     fn createFramebuffers(self: *Stone) !void {
-        try self.swapchain_lists.framebuffers.resize(
-            self.allocator,
-            self.swapchain_lists.image_views.items.len,
+        self.swapchain_lists.framebuffers = try self.allocator.alloc(
+            vk.Framebuffer,
+            self.swapchain_lists.image_views.len,
         );
 
         for (
-            self.swapchain_lists.framebuffers.items,
-            self.swapchain_lists.image_views.items,
+            self.swapchain_lists.framebuffers,
+            self.swapchain_lists.image_views,
         ) |*framebuffer, image_view| {
             const attachments = [_]vk.ImageView{image_view};
 
@@ -466,17 +521,18 @@ pub const Stone = struct {
     }
 
     /// Creates the applications command buffer whose lifetime is tied to the command pool.
-    fn createCommandBuffer(self: *Stone) !void {
+    fn createCommandBuffers(self: *Stone) !void {
+        self.command.buffers = try self.allocator.alloc(vk.CommandBuffer, draw.max_frames_in_flight);
         const alloc_info: vk.CommandBufferAllocateInfo = .{
             .s_type = .command_buffer_allocate_info,
             .command_pool = self.command.pool,
             .level = .primary,
-            .command_buffer_count = 1,
+            .command_buffer_count = @intCast(self.command.buffers.len),
         };
 
         try self.logical_device.allocateCommandBuffers(
             &alloc_info,
-            @ptrCast(&self.command.buffer),
+            self.command.buffers.ptr,
         );
     }
 

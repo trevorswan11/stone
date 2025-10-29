@@ -145,24 +145,20 @@ pub fn checkValidationLayerSupport(allocator: std.mem.Allocator, vkb: lib.BaseWr
 }
 
 pub const DeviceCandidate = struct {
-    allocator: std.mem.Allocator,
-
     device: lib.PhysicalDevice,
     properties: lib.PhysicalDeviceProperties,
     features: lib.PhysicalDeviceFeatures,
 
-    instance: *const lib.InstanceProxy,
-    surface: *const lib.SurfaceKHR,
+    instance: lib.InstanceProxy,
+    surface: lib.SurfaceKHR,
 
     /// Creates a candidate out of a device.
     pub fn init(
-        allocator: std.mem.Allocator,
-        instance: *const lib.InstanceProxy,
-        surface: *const lib.SurfaceKHR,
+        instance: lib.InstanceProxy,
+        surface: lib.SurfaceKHR,
         device: lib.PhysicalDevice,
     ) DeviceCandidate {
         return .{
-            .allocator = allocator,
             .device = device,
             .properties = instance.getPhysicalDeviceProperties(device),
             .features = instance.getPhysicalDeviceFeatures(device),
@@ -193,14 +189,14 @@ pub const DeviceCandidate = struct {
         return std.math.order(b.score(), a.score());
     }
 
-    pub fn findQueueFamilies(self: DeviceCandidate) !QueueFamilyIndices {
+    pub fn findQueueFamilies(self: DeviceCandidate, allocator: std.mem.Allocator) !QueueFamilyIndices {
         var indices: QueueFamilyIndices = .{};
 
         const queue_families = try self.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(
             self.device,
-            self.allocator,
+            allocator,
         );
-        defer self.allocator.free(queue_families);
+        defer allocator.free(queue_families);
 
         for (queue_families, 0..) |queue_family, i| {
             const i_casted: u32 = @intCast(i);
@@ -211,7 +207,7 @@ pub const DeviceCandidate = struct {
             if ((try self.instance.getPhysicalDeviceSurfaceSupportKHR(
                 self.device,
                 i_casted,
-                self.surface.*,
+                self.surface,
             )) == .true) {
                 indices.present_family = i_casted;
             }
@@ -223,13 +219,13 @@ pub const DeviceCandidate = struct {
     }
 
     /// Verifies the specified extensions are present for the device.
-    pub fn checkDeviceExtensionSupport(self: DeviceCandidate) !bool {
+    pub fn checkDeviceExtensionSupport(self: DeviceCandidate, allocator: std.mem.Allocator) !bool {
         const available_extensions = try self.instance.enumerateDeviceExtensionPropertiesAlloc(
             self.device,
             null,
-            self.allocator,
+            allocator,
         );
-        defer self.allocator.free(available_extensions);
+        defer allocator.free(available_extensions);
 
         for (device_extensions) |extension_name| {
             for (available_extensions) |extension_properties| {
@@ -246,15 +242,15 @@ pub const DeviceCandidate = struct {
     /// Checks if the device is suitable for the application.
     ///
     /// This is not considered when ordering the devices.
-    pub fn suitable(self: *DeviceCandidate) !bool {
-        const indices = try self.findQueueFamilies();
-        const supported_exts = try self.checkDeviceExtensionSupport();
+    pub fn suitable(self: *DeviceCandidate, allocator: std.mem.Allocator) !bool {
+        const indices = try self.findQueueFamilies(allocator);
+        const supported_exts = try self.checkDeviceExtensionSupport(allocator);
 
         // Only check for the swap chain support if extensions pass
         var swapchain_ok = false;
         if (supported_exts) {
-            var swapchain_support: swapchain.SwapchainSupportDetails = try .init(self);
-            defer swapchain_support.deinit();
+            var swapchain_support: swapchain.SwapchainSupportDetails = try .init(self, allocator);
+            defer swapchain_support.deinit(allocator);
 
             swapchain_ok = swapchain_support.formats.len != 0 and swapchain_support.present_modes.len != 0;
         }

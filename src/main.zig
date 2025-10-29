@@ -24,7 +24,7 @@ fn ensureVulkan() void {
 pub fn main() !void {
     ensureVulkan();
 
-    var gpa = std.heap.DebugAllocator(.{}).init;
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer if (gpa.deinit() == .leak) @panic("GPA Leaked");
     const allocator = gpa.allocator();
 

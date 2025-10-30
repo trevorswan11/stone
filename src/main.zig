@@ -3,9 +3,6 @@ const std = @import("std");
 const core = @import("core");
 const engine = @import("engine");
 
-const glfw = engine.glfw;
-const vk = engine.vk;
-
 fn ensureVulkan() void {
     const recommended_vulkan = "1.4.309.0";
     if (!std.process.hasEnvVarConstant("VULKAN_SDK")) {

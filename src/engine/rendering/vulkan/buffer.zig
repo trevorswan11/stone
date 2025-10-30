@@ -17,8 +17,6 @@ pub const Buffer = struct {
     mem: vk.DeviceMemory,
 
     /// Creates a generic Buffer.
-    ///
-    /// The caller is responsible for freeing withe their logical device.
     pub fn init(
         logical_device: vk.DeviceProxy,
         instance: vk.InstanceProxy,
@@ -27,7 +25,6 @@ pub const Buffer = struct {
         usage: vk.BufferUsageFlags,
         properties: vk.MemoryPropertyFlags,
     ) !Buffer {
-        // Create the buffer with the pipeline's vertices
         const buffer_info: vk.BufferCreateInfo = .{
             .s_type = .buffer_create_info,
             .size = size,
@@ -64,6 +61,11 @@ pub const Buffer = struct {
             .buf = buffer,
             .mem = mem,
         };
+    }
+
+    pub fn deinit(self: *Buffer, logical_device: vk.DeviceProxy) void {
+        logical_device.destroyBuffer(self.buf, null);
+        logical_device.freeMemory(self.mem, null);
     }
 
     /// Copies all resources from the source buffer to the destination buffer.
@@ -135,7 +137,7 @@ pub const VertexBuffer = struct {
         const buffer_size = pipeline.vertices_size;
 
         // Create a temporary buffer only visible to the host
-        const staging_buffer: Buffer = try .init(
+        var staging_buffer: Buffer = try .init(
             stone.logical_device,
             stone.instance,
             stone.physical_device.device,
@@ -148,11 +150,7 @@ pub const VertexBuffer = struct {
                 .host_coherent_bit = true,
             },
         );
-
-        defer {
-            stone.logical_device.destroyBuffer(staging_buffer.buf, null);
-            stone.logical_device.freeMemory(staging_buffer.mem, null);
-        }
+        defer staging_buffer.deinit(stone.logical_device);
 
         // Map and copy the memory from the CPU to GPU
         const data = try stone.logical_device.mapMemory(
@@ -199,11 +197,80 @@ pub const VertexBuffer = struct {
     }
 
     pub fn deinit(self: *VertexBuffer, logical_device: vk.DeviceProxy) void {
-        logical_device.destroyBuffer(self.buffer.buf, null);
-        logical_device.freeMemory(self.buffer.mem, null);
+        self.buffer.deinit(logical_device);
     }
 };
 
+pub const IndexBuffer = struct {
+    buffer: Buffer,
+
+    pub fn init(stone: *launcher.Stone) !IndexBuffer {
+        const buffer_size = pipeline.indices_size;
+
+        // Create a temporary buffer only visible to the host
+        var staging_buffer: Buffer = try .init(
+            stone.logical_device,
+            stone.instance,
+            stone.physical_device.device,
+            buffer_size,
+            .{
+                .transfer_src_bit = true,
+            },
+            .{
+                .host_visible_bit = true,
+                .host_coherent_bit = true,
+            },
+        );
+        defer staging_buffer.deinit(stone.logical_device);
+
+        // Map and copy the memory from the CPU to GPU
+        const data = try stone.logical_device.mapMemory(
+            staging_buffer.mem,
+            0,
+            buffer_size,
+            .{},
+        ) orelse return error.MemoryMapFailed;
+        defer stone.logical_device.unmapMemory(staging_buffer.mem);
+
+        const casted: *@TypeOf(pipeline.indices) = @ptrCast(@alignCast(data));
+        @memcpy(casted, &pipeline.indices);
+
+        // Create a device local buffer to use as the actual index buffer
+        const index_buffer: Buffer = try .init(
+            stone.logical_device,
+            stone.instance,
+            stone.physical_device.device,
+            buffer_size,
+            .{
+                .transfer_dst_bit = true,
+                .index_buffer_bit = true,
+            },
+            .{
+                .device_local_bit = true,
+            },
+        );
+
+        try Buffer.copy(
+            stone.logical_device,
+            stone.command.pool,
+            stone.graphics_queue.handle,
+            staging_buffer,
+            index_buffer,
+            buffer_size,
+        );
+
+        return .{
+            .buffer = .{
+                .buf = index_buffer.buf,
+                .mem = index_buffer.mem,
+            },
+        };
+    }
+
+    pub fn deinit(self: *IndexBuffer, logical_device: vk.DeviceProxy) void {
+        self.buffer.deinit(logical_device);
+    }
+};
 /// Determines the correct GPU memory to use based on the buffer and physical device.
 ///
 /// Necessary as the GPU has different memory regions that allow different operations and performance optimizations.

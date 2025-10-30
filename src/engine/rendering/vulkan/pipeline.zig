@@ -263,16 +263,45 @@ pub const Vertex = struct {
 
 pub const vertices = [_]Vertex{
     .{
-        .pos = Vec2.decay(.{ 0.0, -0.5 }),
-        .color = Vec3.decay(.{ 1.0, 1.0, 1.0 }),
+        .pos = Vec2.decay(.{ -0.5, -0.5 }),
+        .color = Vec3.decay(.{ 1.0, 0.0, 0.0 }),
     },
     .{
-        .pos = Vec2.decay(.{ 0.5, 0.5 }),
+        .pos = Vec2.decay(.{ 0.5, -0.5 }),
         .color = Vec3.decay(.{ 0.0, 1.0, 0.0 }),
     },
     .{
-        .pos = Vec2.decay(.{ -0.5, 0.5 }),
+        .pos = Vec2.decay(.{ 0.5, 0.5 }),
         .color = Vec3.decay(.{ 0.0, 0.0, 1.0 }),
+    },
+    .{
+        .pos = Vec2.decay(.{ -0.5, 0.5 }),
+        .color = Vec3.decay(.{ 1.0, 1.0, 1.0 }),
     },
 };
 pub const vertices_size = @sizeOf(@TypeOf(vertices));
+
+pub const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
+pub const indices_size = @sizeOf(@TypeOf(indices));
+pub const index_type: vk.IndexType = blk: {
+    switch (@typeInfo(@TypeOf(indices))) {
+        .array => |a| {
+            switch (@typeInfo(a.child)) {
+                .int => |int| {
+                    if (int.signedness == .signed) {
+                        @compileError("indices must have unsigned int child type");
+                    }
+
+                    break :blk switch (int.bits) {
+                        8 => .uint8,
+                        16 => .uint16,
+                        32 => .uint32,
+                        else => @compileError("indices child type must be 8, 16, or 32 bit unsigned int"),
+                    };
+                },
+                else => @compileError("indices must have int child type"),
+            }
+        },
+        else => @compileError("indices must be a compile time array"),
+    }
+};

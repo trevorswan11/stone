@@ -57,7 +57,9 @@ pub const Stone = struct {
 
     render_pass: vk.RenderPass = undefined,
     graphics_pipeline: pipeline.Graphics = undefined,
+
     vertex_buffer: buffer.VertexBuffer = undefined,
+    index_buffer: buffer.IndexBuffer = undefined,
 
     command: draw.Command = undefined,
     syncs: sync.Syncs = undefined,
@@ -87,6 +89,8 @@ pub const Stone = struct {
         }
 
         self.vertex_buffer.deinit(self.logical_device);
+        self.index_buffer.deinit(self.logical_device);
+
         self.syncs.deinit(self.allocator, &self.logical_device);
         self.logical_device.destroyCommandPool(self.command.pool, null);
 
@@ -157,6 +161,7 @@ pub const Stone = struct {
 
         try self.createCommandPool();
         try self.createVertexBuffer();
+        try self.createIndexBuffer();
         try self.createCommandBuffers();
         try self.createSyncObjects();
     }
@@ -526,7 +531,12 @@ pub const Stone = struct {
 
     /// Creates a new vertex buffer for storing GPU memory.
     fn createVertexBuffer(self: *Stone) !void {
-        self.vertex_buffer = try buffer.VertexBuffer.init(self);
+        self.vertex_buffer = try .init(self);
+    }
+
+    /// Creates an index buffer for indexing into the vertex buffer.
+    fn createIndexBuffer(self: *Stone) !void {
+        self.index_buffer = try .init(self);
     }
 
     /// Creates the applications command buffer whose lifetime is tied to the command pool.

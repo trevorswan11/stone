@@ -98,7 +98,7 @@ pub const Command = struct {
             &scissors,
         );
 
-        // Now we can finally draw (just a triangle) and end the render pass
+        // Now we can finally draw and end the render pass
         const vertex_buffers = [_]vk.Buffer{
             stone.vertex_buffer.buffer.buf,
         };
@@ -111,10 +111,18 @@ pub const Command = struct {
             &offsets,
         );
 
-        stone.logical_device.cmdDraw(
+        stone.logical_device.cmdBindIndexBuffer(
             buffer,
-            @intCast(pipeline.vertices.len),
+            stone.index_buffer.buffer.buf,
+            0,
+            pipeline.index_type,
+        );
+
+        stone.logical_device.cmdDrawIndexed(
+            buffer,
+            @intCast(pipeline.indices.len),
             1,
+            0,
             0,
             0,
         );

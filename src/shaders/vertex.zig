@@ -1,28 +1,16 @@
 const std = @import("std");
 const gpu = std.gpu;
 
-const positions: [3]@Vector(2, f32) = .{
-    .{ 0.0, -0.5 },
-    .{ 0.5, 0.5 },
-    .{ -0.5, 0.5 },
-};
-
-const colors: [3]@Vector(3, f32) = .{
-    .{ 1.0, 0.0, 0.0 },
-    .{ 0.0, 1.0, 0.0 },
-    .{ 0.0, 0.0, 1.0 },
-};
+extern const in_position: @Vector(2, f32) addrspace(.input);
+extern const in_color: @Vector(3, f32) addrspace(.input);
 
 extern var frag_color: @Vector(3, f32) addrspace(.output);
 
 export fn main() callconv(.spirv_vertex) void {
-    gpu.position_out.* = .{
-        positions[gpu.vertex_index][0],
-        positions[gpu.vertex_index][1],
-        0.0,
-        1.0,
-    };
-
+    gpu.location(&in_position, 0);
+    gpu.location(&in_color, 1);
     gpu.location(&frag_color, 0);
-    frag_color = colors[gpu.vertex_index];
+
+    gpu.position_out.* = .{ in_position[0], in_position[1], 0.0, 1.0 };
+    frag_color = in_color;
 }

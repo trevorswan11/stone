@@ -1,5 +1,9 @@
 const std = @import("std");
 
+const core = @import("core");
+pub const Vec2 = core.Vector(f32, 2);
+pub const Vec3 = core.Vector(f32, 3);
+
 const vulkan = @import("vulkan.zig");
 const vk = vulkan.lib;
 
@@ -86,16 +90,17 @@ pub const Graphics = struct {
             frag_stage_info,
         };
 
-        // TODO: Update when vertex shader is not hard-coded
+        const binding = Vertex.bindingDescription();
+        const attributes = Vertex.attributeDescriptions();
         const vertex_input_info: vk.PipelineVertexInputStateCreateInfo = .{
             .s_type = .pipeline_vertex_input_state_create_info,
-            .vertex_binding_description_count = 0,
-            .p_vertex_binding_descriptions = null,
-            .vertex_attribute_description_count = 0,
-            .p_vertex_attribute_descriptions = null,
+            .vertex_binding_description_count = 1,
+            .p_vertex_binding_descriptions = @ptrCast(&binding),
+            .vertex_attribute_description_count = attributes.len,
+            .p_vertex_attribute_descriptions = &attributes,
         };
 
-        // TODO: Update when drawing more than just triangles
+        // TODO: Update when drawing more than just triangles?
         const input_assembly: vk.PipelineInputAssemblyStateCreateInfo = .{
             .s_type = .pipeline_input_assembly_state_create_info,
             .topology = .triangle_list,
@@ -225,3 +230,49 @@ pub const Graphics = struct {
         logical_device.destroyPipelineLayout(self.layout, null);
     }
 };
+
+pub const Vertex = struct {
+    pos: Vec2.VecType,
+    color: Vec3.VecType,
+
+    fn bindingDescription() vk.VertexInputBindingDescription {
+        return .{
+            .binding = 0,
+            .stride = @sizeOf(Vertex),
+            .input_rate = .vertex,
+        };
+    }
+
+    fn attributeDescriptions() [2]vk.VertexInputAttributeDescription {
+        return .{
+            .{
+                .binding = 0,
+                .location = 0,
+                .format = .r32g32_sfloat,
+                .offset = @offsetOf(Vertex, "pos"),
+            },
+            .{
+                .binding = 0,
+                .location = 1,
+                .format = .r32g32b32_sfloat,
+                .offset = @offsetOf(Vertex, "color"),
+            },
+        };
+    }
+};
+
+pub const vertices = [_]Vertex{
+    .{
+        .pos = Vec2.decay(.{ 0.0, -0.5 }),
+        .color = Vec3.decay(.{ 1.0, 1.0, 1.0 }),
+    },
+    .{
+        .pos = Vec2.decay(.{ 0.5, 0.5 }),
+        .color = Vec3.decay(.{ 0.0, 1.0, 0.0 }),
+    },
+    .{
+        .pos = Vec2.decay(.{ -0.5, 0.5 }),
+        .color = Vec3.decay(.{ 0.0, 0.0, 1.0 }),
+    },
+};
+pub const vertices_size = @sizeOf(@TypeOf(vertices));

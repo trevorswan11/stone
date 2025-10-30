@@ -20,7 +20,7 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
     return struct {
         const Self = @This();
 
-        const VecType: type = @Vector(n, T);
+        pub const VecType: type = @Vector(n, T);
 
         /// Helper for iteration, mutating this does nothing good for you
         len: usize = n,
@@ -33,6 +33,13 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
                 out[i] = vals[i];
             }
             return .{ .vec = out };
+        }
+
+        /// Similar to init, except the returned value has decayed into the raw SIMD representation.
+        ///
+        /// While technically not lossy, this should only be used for GPU-specific use-cases.
+        pub fn decay(vals: [n]T) @Vector(n, T) {
+            return Self.init(vals).vec;
         }
 
         /// Shorthand for using @as with @splat

@@ -9,6 +9,7 @@ const swapchain_ = @import("rendering/vulkan/swapchain.zig");
 const pipeline = @import("rendering/vulkan/pipeline.zig");
 const draw = @import("rendering/vulkan/draw.zig");
 const sync = @import("rendering/vulkan/sync.zig");
+const buffer = @import("rendering/vulkan/buffer.zig");
 
 const vk = vulkan.lib;
 const BaseWrapper = vk.BaseWrapper;
@@ -56,6 +57,7 @@ pub const Stone = struct {
 
     render_pass: vk.RenderPass = undefined,
     graphics_pipeline: pipeline.Graphics = undefined,
+    vertex_buffer: buffer.VertexBuffer = undefined,
 
     command: draw.Command = undefined,
     syncs: sync.Syncs = undefined,
@@ -84,6 +86,7 @@ pub const Stone = struct {
             glfw.terminate();
         }
 
+        self.vertex_buffer.deinit(self.logical_device);
         self.syncs.deinit(self.allocator, &self.logical_device);
         self.logical_device.destroyCommandPool(self.command.pool, null);
 
@@ -153,6 +156,7 @@ pub const Stone = struct {
         try self.createFramebuffers();
 
         try self.createCommandPool();
+        try self.createVertexBuffer();
         try self.createCommandBuffers();
         try self.createSyncObjects();
     }
@@ -518,6 +522,11 @@ pub const Stone = struct {
             &pool_info,
             null,
         );
+    }
+
+    /// Creates a new vertex buffer for storing GPU memory.
+    fn createVertexBuffer(self: *Stone) !void {
+        self.vertex_buffer = try buffer.VertexBuffer.init(self);
     }
 
     /// Creates the applications command buffer whose lifetime is tied to the command pool.

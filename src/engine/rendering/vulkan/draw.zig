@@ -7,6 +7,8 @@ const glfw = @import("../glfw.zig");
 
 const launcher = @import("../../launcher.zig");
 
+const pipeline = @import("pipeline.zig");
+
 pub const max_frames_in_flight = 2;
 
 pub const Command = struct {
@@ -97,9 +99,21 @@ pub const Command = struct {
         );
 
         // Now we can finally draw (just a triangle) and end the render pass
+        const vertex_buffers = [_]vk.Buffer{
+            stone.vertex_buffer.buffer.buf,
+        };
+        const offsets = [_]vk.DeviceSize{0};
+        stone.logical_device.cmdBindVertexBuffers(
+            buffer,
+            0,
+            1,
+            &vertex_buffers,
+            &offsets,
+        );
+
         stone.logical_device.cmdDraw(
             buffer,
-            3,
+            @intCast(pipeline.vertices.len),
             1,
             0,
             0,

@@ -42,6 +42,11 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
             return Self.init(vals).vec;
         }
 
+        /// Similar to init, except the returned value has spawned from the SIMD vec.
+        pub fn spawn(v: @Vector(n, T)) Self {
+            return .{ .vec = v };
+        }
+
         /// Shorthand for using @as with @splat
         pub fn splat(val: T) Self {
             return .{ .vec = @splat(val) };
@@ -111,11 +116,9 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
         ///
         /// T must be a float type.
         pub fn mag(self: Self) T {
-            comptime {
-                if (@typeInfo(T) != .float) {
-                    @compileError("mag() is only defined for float vectors");
-                }
-            }
+            comptime if (@typeInfo(T) != .float) {
+                @compileError("mag is only defined for float vectors");
+            };
 
             return @sqrt(self.magSq());
         }
@@ -126,11 +129,9 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
         ///
         /// Asserts that the magnitude is nonzero.
         pub fn normalize(self: Self) Self {
-            comptime {
-                if (@typeInfo(T) != .float) {
-                    @compileError("normalize() is only defined for float vectors");
-                }
-            }
+            comptime if (@typeInfo(T) != .float) {
+                @compileError("normalize is only defined for float vectors");
+            };
 
             const m = self.mag();
             std.debug.assert(m != 0);

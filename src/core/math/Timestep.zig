@@ -16,7 +16,7 @@ pub fn init() Self {
 
 /// Returns the time elapsed since the last frame in seconds.
 /// Also updates the internal last frame time and delta time value.
-/// 
+///
 /// T must be a known float type.
 pub fn step(self: *Self, comptime T: type) T {
     comptime switch (@typeInfo(T)) {

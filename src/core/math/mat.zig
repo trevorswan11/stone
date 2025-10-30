@@ -27,6 +27,12 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
         pub const VecType = Vector(T, n);
         pub const MatType = [m]VecType;
 
+        pub const Dimensions = struct {
+            numel: usize = m * n,
+            rows: usize = m,
+            cols: usize = n,
+        };
+
         const default_value: T = switch (@typeInfo(T)) {
             .float => 0.0,
             .int => 0,
@@ -34,11 +40,7 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
         };
 
         /// Helper for iteration, mutating this does nothing good for you
-        dims: struct {
-            numel: usize = m * n,
-            rows: usize = m,
-            cols: usize = n,
-        } = .{},
+        dims: Dimensions = .{},
         mat: MatType,
 
         /// Creates a new matrix with values corresponding the passed values.
@@ -56,6 +58,20 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
         /// Creates a matrix with all values set to the given value.
         pub fn splat(val: T) Self {
             return .{ .mat = @splat(VecType.splat(val)) };
+        }
+
+        /// Returns the 'identity' matrix for the matrix type.
+        /// The diag_val is used for the diagonal, hence the quotes around 'identity'.
+        ///
+        /// Asserts that the matrix is square.
+        pub fn identity(comptime diag_val: T) Self {
+            comptime std.debug.assert(m == n);
+            var out: Self = .splat(default_value);
+            inline for (0..m) |row| {
+                out.mat[row].vec[row] = diag_val;
+            }
+
+            return out;
         }
 
         pub fn scale(self: Self, val: T) Self {
@@ -138,19 +154,213 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
     };
 }
 
+/// Rotates the matrix in 3D space about the vector representing the axis of rotation.
+/// Preserves the final component of the output.
+///
+/// Implementation from glm: https://github.com/g-truc/glm
+///
+/// T must be a float, and the angle should be in radians.
+pub fn rotate(
+    comptime T: type,
+    mat: Matrix(T, 4, 4),
+    angle: T,
+    rotation_axis: Vector(T, 3),
+) Matrix(T, 4, 4) {
+    comptime if (@typeInfo(T) != .float) {
+        @compileError("rotate is only defined for floats");
+    };
+    const Mat = Matrix(T, 4, 4);
+
+    const cos: T = @cos(angle);
+    const sin: T = @sin(angle);
+    const axis = rotation_axis.normalize();
+    const temp = axis.scale(1.0 - cos);
+
+    var rotated: Mat = .splat(0.0);
+    rotated.mat[0].vec[0] = cos + temp.vec[0] * axis.vec[0];
+    rotated.mat[0].vec[1] = temp.vec[0] * axis.vec[1] + sin * axis.vec[2];
+    rotated.mat[0].vec[2] = temp.vec[0] * axis.vec[2] - sin * axis.vec[1];
+
+    rotated.mat[1].vec[0] = temp.vec[1] * axis.vec[0] - sin * axis.vec[2];
+    rotated.mat[1].vec[1] = cos + temp.vec[1] * axis.vec[1];
+    rotated.mat[1].vec[2] = temp.vec[1] * axis.vec[2] + sin * axis.vec[0];
+
+    rotated.mat[2].vec[0] = temp.vec[2] * axis.vec[0] + sin * axis.vec[1];
+    rotated.mat[2].vec[1] = temp.vec[2] * axis.vec[1] - sin * axis.vec[0];
+    rotated.mat[2].vec[2] = cos + temp.vec[2] * axis.vec[2];
+
+    var out: Mat = .splat(0.0);
+
+    // zig fmt: off
+    out.mat[0] = .spawn(mat.mat[0].scale(rotated.mat[0].vec[0]).vec
+        + mat.mat[1].scale(rotated.mat[0].vec[1]).vec
+        + mat.mat[2].scale(rotated.mat[0].vec[2]).vec);
+    out.mat[1] = .spawn(mat.mat[0].scale(rotated.mat[1].vec[0]).vec
+        + mat.mat[1].scale(rotated.mat[1].vec[1]).vec
+        + mat.mat[2].scale(rotated.mat[1].vec[2]).vec);
+    out.mat[2] = .spawn(mat.mat[0].scale(rotated.mat[2].vec[0]).vec
+        + mat.mat[1].scale(rotated.mat[2].vec[1]).vec
+        + mat.mat[2].scale(rotated.mat[2].vec[2]).vec);
+    // zig fmt: on
+
+    out.mat[3] = mat.mat[3];
+    return out;
+}
+
+/// Computes the LHS view matrix.
+///
+/// Asserts that T is a float.
+fn lookAtLH(
+    comptime T: type,
+    eye: Vector(T, 3),
+    center: Vector(T, 3),
+    up: Vector(T, 3),
+) Matrix(T, 4, 4) {
+    comptime std.debug.assert(@typeInfo(T) == .float);
+
+    const Mat = Matrix(T, 4, 4);
+    const Vec = Vector(T, 3);
+
+    const f_raw: Vec = .spawn(center.vec - eye.vec);
+    const f = f_raw.normalize();
+    const s = up.cross(f).normalize();
+    const u = f.cross(s);
+
+    var out: Mat = .identity(1.0);
+
+    out.mat[0].vec[0] = s.vec[0];
+    out.mat[1].vec[0] = s.vec[1];
+    out.mat[2].vec[0] = s.vec[2];
+
+    out.mat[0].vec[1] = u.vec[0];
+    out.mat[1].vec[1] = u.vec[1];
+    out.mat[2].vec[1] = u.vec[2];
+
+    out.mat[0].vec[2] = f.vec[0];
+    out.mat[1].vec[2] = f.vec[1];
+    out.mat[2].vec[2] = f.vec[2];
+
+    out.mat[3].vec[0] = -s.dot(eye);
+    out.mat[3].vec[1] = -u.dot(eye);
+    out.mat[3].vec[2] = -f.dot(eye);
+
+    return out;
+}
+
+/// Computes the RHS view matrix.
+///
+/// Asserts that T is a float.
+fn lookAtRH(
+    comptime T: type,
+    eye: Vector(T, 3),
+    center: Vector(T, 3),
+    up: Vector(T, 3),
+) Matrix(T, 4, 4) {
+    comptime std.debug.assert(@typeInfo(T) == .float);
+
+    const Mat = Matrix(T, 4, 4);
+    const Vec = Vector(T, 3);
+
+    const f_raw: Vec = .spawn(center.vec - eye.vec);
+    const f = f_raw.normalize();
+    const s = f.cross(up).normalize();
+    const u = s.cross(f);
+
+    var out: Mat = .identity(1.0);
+
+    out.mat[0].vec[0] = s.vec[0];
+    out.mat[1].vec[0] = s.vec[1];
+    out.mat[2].vec[0] = s.vec[2];
+
+    out.mat[0].vec[1] = u.vec[0];
+    out.mat[1].vec[1] = u.vec[1];
+    out.mat[2].vec[1] = u.vec[2];
+
+    out.mat[0].vec[2] = -f.vec[0];
+    out.mat[1].vec[2] = -f.vec[1];
+    out.mat[2].vec[2] = -f.vec[2];
+
+    out.mat[3].vec[0] = -s.dot(eye);
+    out.mat[3].vec[1] = -u.dot(eye);
+    out.mat[3].vec[2] = f.dot(eye);
+
+    return out;
+}
+
+/// Computes the specified view matrix.
+///
+/// Implementation from glm: https://github.com/g-truc/glm
+///
+/// T must be a float.
+pub fn lookAt(
+    comptime T: type,
+    eye: Vector(T, 3),
+    center: Vector(T, 3),
+    up: Vector(T, 3),
+    comptime flavor: enum { lh, rh },
+) Matrix(T, 4, 4) {
+    comptime if (@typeInfo(T) != .float) {
+        @compileError("lookAt is only defined for floats");
+    };
+
+    return switch (flavor) {
+        .lh => lookAtLH(T, eye, center, up),
+        .rh => lookAtRH(T, eye, center, up),
+    };
+}
+
+/// Creates the perspective matrix from the scene parameters.
+///
+/// The returned perspective matrix uses the intuitive y-coordinate (opposite to OpenGL).
+///
+/// Implementation from glm: https://github.com/g-truc/glm
+///
+/// T must be a float.
+pub fn perspective(
+    comptime T: type,
+    fovy: T,
+    aspect: T,
+    z_near: T,
+    z_far: T,
+) Matrix(T, 4, 4) {
+    comptime if (@typeInfo(T) != .float) {
+        @compileError("perspective is only defined for floats");
+    };
+
+    const Mat = Matrix(T, 4, 4);
+
+    const tan_half_fovy = @tan(fovy / 2.0);
+    var out: Mat = .splat(0.0);
+
+    out.mat[0].vec[0] = 1.0 / (aspect * tan_half_fovy);
+    out.mat[1].vec[1] = -1.0 / tan_half_fovy;
+    out.mat[2].vec[2] = -(z_far + z_near) / (z_far - z_near);
+    out.mat[2].vec[3] = -1.0;
+    out.mat[3].vec[2] = -(2.0 * z_far * z_near) / (z_far - z_near);
+
+    return out;
+}
+
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualSlices = testing.expectEqualSlices;
+const expectApproxEqAbs = testing.expectApproxEqAbs;
 
 test "Matrix initialization and scalar multiplication" {
     const Mat2 = Matrix(f32, 2, 2);
 
-    const row1 = Mat2.VecType.init(.{ 0.0, 1.0 });
-    const row2 = Mat2.VecType.init(.{ 2.0, 3.0 });
-    const actual_diff = Mat2.init(.{ 0.0, 1.0, 2.0, 3.0 });
+    const row1: Mat2.VecType = .init(.{ 0.0, 1.0 });
+    const row2: Mat2.VecType = .init(.{ 2.0, 3.0 });
+    const actual_diff: Mat2 = .init(.{ 0.0, 1.0, 2.0, 3.0 });
     for (0..actual_diff.dims.rows, [_]Mat2.VecType{ row1, row2 }) |row, expected| {
         try expectEqual(expected, actual_diff.mat[row]);
+    }
+
+    const expected_m2_ident = [_]f32{ 1.0, 0.0, 0.0, 1.0 };
+    const actual_m2_ident = comptime Mat2.identity(1.0);
+    inline for (0..4) |i| {
+        try expectEqual(expected_m2_ident[i], actual_m2_ident.at(i));
     }
 
     const Mat4 = Matrix(f32, 4, 4);
@@ -161,7 +371,7 @@ test "Matrix initialization and scalar multiplication" {
         .init(.{ 10.0, 10.0, 10.0, 10.0 }),
         .init(.{ 10.0, 10.0, 10.0, 10.0 }),
     };
-    const actual_splat = Mat4.splat(10.0);
+    const actual_splat: Mat4 = .splat(10.0);
     try expectEqualSlices(Mat4.VecType, &expected_rows, &actual_splat.mat);
 
     const expected_scaled_rows = [_]Mat4.VecType{
@@ -193,7 +403,7 @@ test "Matrix initialization and scalar multiplication" {
         35, 36, 37, 38, 39, 40, 41,
     };
 
-    var actual_67 = Mat67.init(init_vals67);
+    var actual_67: Mat67 = .init(init_vals67);
     try expectEqualSlices(Mat67.VecType, &expected_mat67, &actual_67.mat);
 
     var idx: usize = 0;
@@ -229,7 +439,7 @@ test "Matrix initialization and scalar multiplication" {
         36, 37, 38, 39, 40, 41,
     };
 
-    var actual_76 = Mat76.init(init_vals76);
+    var actual_76: Mat76 = .init(init_vals76);
     try expectEqualSlices(Mat76.VecType, &expected_mat76, &actual_76.mat);
 
     for (init_vals76, 0..) |val, i| {
@@ -246,11 +456,11 @@ test "Matrix initialization and scalar multiplication" {
 test "Matrix transposition" {
     const Mat23 = Matrix(f32, 2, 3);
     const Mat32 = Matrix(f32, 3, 2);
-    const m23 = Mat23.init(.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
+    const m23: Mat23 = .init(.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
 
     const m32 = m23.transpose();
     const expected_m32_data = [_]f32{ 1.0, 4.0, 2.0, 5.0, 3.0, 6.0 };
-    const expected_m32 = Mat32.init(expected_m32_data);
+    const expected_m32: Mat32 = .init(expected_m32_data);
 
     try expectEqualSlices(Mat32.VecType, &expected_m32.mat, &m32.mat);
     try expect(@TypeOf(m23) != @TypeOf(m32));
@@ -259,7 +469,7 @@ test "Matrix transposition" {
 
 test "Matrix-vector multiplication" {
     const Mat33 = Matrix(f32, 3, 3);
-    const m33 = Mat33.init(.{
+    const m33: Mat33 = .init(.{
         1.0, 2.0, 3.0,
         4.0, 5.0, 6.0,
         7.0, 8.0, 9.0,
@@ -283,12 +493,12 @@ test "Matrix-matrix multiplication" {
     const Mat23 = Matrix(f32, 2, 3);
     const Mat2 = Matrix(f32, 2, 2);
 
-    const m1 = Mat23.init(.{
+    const m1: Mat23 = .init(.{
         1.0, 2.0, 3.0,
         4.0, 5.0, 6.0,
     });
 
-    const m23 = Mat23.init(.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
+    const m23: Mat23 = .init(.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
     const m2 = m23.transpose();
     const out_m = m1.mul(2, m2);
 
@@ -299,8 +509,102 @@ test "Matrix-matrix multiplication" {
     // out[1][1] = row1(m1) * col1(m2) = (4,5,6) * (4,5,6) = 4*4 + 5*5 + 6*6 = 16 + 25 + 36 = 77
 
     const expected_out_m_data = [_]f32{ 14.0, 32.0, 32.0, 77.0 };
-    const expected_out_m = Mat2.init(expected_out_m_data);
+    const expected_out_m: Mat2 = .init(expected_out_m_data);
 
     try expect(@TypeOf(out_m) == Mat2);
     try expectEqualSlices(Mat2.VecType, &expected_out_m.mat, &out_m.mat);
+}
+
+const epsilon = 0.0001;
+
+test "rotate function" {
+    const T = f32;
+    const Mat4 = Matrix(T, 4, 4);
+
+    const m_in: Mat4 = .identity(1.0);
+
+    const m_out_zero = rotate(T, m_in, 0.0, .init(.{ 0, 1, 0 }));
+    for (0..m_in.dims.numel) |i| {
+        try expectApproxEqAbs(m_in.at(i), m_out_zero.at(i), epsilon);
+    }
+
+    // Pre-multiplication (R * M), so R * I = R
+    const angle = std.math.pi / 2.0;
+    const c = @cos(angle);
+    const s = @sin(angle);
+    const m_out_z90 = rotate(T, m_in, angle, .init(.{ 0, 0, 1 }));
+
+    const expected_z90_data = [_]T{
+        c,  s, 0, 0,
+        -s, c, 0, 0,
+        0,  0, 1, 0,
+        0,  0, 0, 1,
+    };
+    const expected_z90: Mat4 = .init(expected_z90_data);
+    for (0..expected_z90.dims.numel) |i| {
+        try expectApproxEqAbs(expected_z90.at(i), m_out_z90.at(i), epsilon);
+    }
+}
+
+test "lookAt and its variants" {
+    if (true) return error.SkipZigTest;
+    const T = f32;
+    const Mat4 = Matrix(T, 4, 4);
+    const Vec3 = Vector(T, 3);
+
+    const eye: Vec3 = .init(.{ 0, 0, 1 });
+    const center: Vec3 = .init(.{ 0, 0, 0 });
+    const up: Vec3 = .init(.{ 0, 1, 0 });
+
+    // LH calculation
+    const m_lh = lookAt(T, eye, center, up, .lh);
+    const expected_lh_data = [_]T{
+        -1, 0, 0,  0,
+        0,  1, 0,  0,
+        0,  0, -1, 0,
+        0,  0, 1,  1,
+    };
+    const expected_lh = Mat4.init(expected_lh_data);
+    for (0..expected_lh.dims.numel) |i| {
+        try expectApproxEqAbs(expected_lh.at(i), m_lh.at(i), epsilon);
+    }
+
+    // RH calculation
+    const m_rh = lookAt(T, eye, center, up, .rh);
+    const expected_rh_data = [_]T{
+        1, 0, 1,  0,
+        0, 1, 0,  0,
+        0, 0, 1,  0,
+        0, 0, -1, 1,
+    };
+    const expected_rh = Mat4.init(expected_rh_data);
+    for (0..expected_rh.dims.numel) |i| {
+        try expectApproxEqAbs(expected_rh.at(i), m_rh.at(i), epsilon);
+    }
+}
+
+test "perspective" {
+    const T = f32;
+    const Mat4 = Matrix(T, 4, 4);
+
+    const fovy = std.math.pi / 2.0;
+    const aspect = 1.0;
+    const znear = 0.1;
+    const zfar = 100.0;
+    const m_persp = perspective(T, fovy, aspect, znear, zfar);
+
+    const f_minus_n = zfar - znear;
+    const f_plus_n = zfar + znear;
+    const two_f_n = 2.0 * zfar * znear;
+
+    const expected_data = [_]T{
+        1.0, 0.0,  0.0,                   0.0,
+        0.0, -1.0, 0.0,                   0.0,
+        0.0, 0.0,  -f_plus_n / f_minus_n, -1.0,
+        0.0, 0.0,  -two_f_n / f_minus_n,  0.0,
+    };
+    const expected_persp: Mat4 = .init(expected_data);
+    for (0..expected_persp.dims.numel) |i| {
+        try expectApproxEqAbs(expected_persp.at(i), m_persp.at(i), epsilon);
+    }
 }

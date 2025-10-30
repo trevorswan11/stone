@@ -25,7 +25,7 @@ pub fn Matrix(comptime T: type, comptime m: comptime_int, comptime n: comptime_i
         const Self = @This();
 
         pub const VecType = Vector(T, n);
-        const MatType = [m]VecType;
+        pub const MatType = [m]VecType;
 
         const default_value: T = switch (@typeInfo(T)) {
             .float => 0.0,

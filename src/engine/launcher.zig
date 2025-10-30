@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const config = @import("config");
+const core = @import("core");
 
 const glfw = @import("rendering/glfw.zig");
 
@@ -56,18 +57,23 @@ pub const Stone = struct {
     framebuffer_resized: bool = false,
 
     render_pass: vk.RenderPass = undefined,
+    descriptor_set_layout: vk.DescriptorSetLayout = undefined,
     graphics_pipeline: pipeline.Graphics = undefined,
 
     vertex_buffer: buffer.VertexBuffer = undefined,
     index_buffer: buffer.IndexBuffer = undefined,
+    uniform_buffers: buffer.UniformBuffers = undefined,
 
     command: draw.Command = undefined,
     syncs: sync.Syncs = undefined,
+
+    timestep: core.Timestep = undefined,
 
     pub fn init(allocator: std.mem.Allocator) !Stone {
         var self: Stone = .{
             .allocator = allocator,
         };
+        defer self.timestep = .init();
 
         try self.initWindow();
         self.vkb = .load(glfw.getInstanceProcAddress);
@@ -90,6 +96,7 @@ pub const Stone = struct {
 
         self.vertex_buffer.deinit(self.logical_device);
         self.index_buffer.deinit(self.logical_device);
+        self.uniform_buffers.deinit(self.allocator, self.logical_device);
 
         self.syncs.deinit(self.allocator, &self.logical_device);
         self.logical_device.destroyCommandPool(self.command.pool, null);
@@ -98,6 +105,7 @@ pub const Stone = struct {
         self.logical_device.destroyRenderPass(self.render_pass, null);
 
         self.swapchain.deinit(self);
+        self.logical_device.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
         self.logical_device.destroyDevice(null);
         self.instance.destroySurfaceKHR(self.surface, null);
 
@@ -109,6 +117,7 @@ pub const Stone = struct {
 
     pub fn run(self: *Stone) !void {
         while (glfw.windowShouldClose(self.window) != glfw.true) {
+            _ = self.timestep.step(f32);
             glfw.pollEvents();
             try draw.drawFrame(self);
         }
@@ -156,12 +165,14 @@ pub const Stone = struct {
         try self.createSwapchain();
         try self.createImageViews();
         try self.createRenderPass();
+        try self.createDescriptorSetLayout();
         try self.createGraphicsPipeline();
         try self.createFramebuffers();
 
         try self.createCommandPool();
         try self.createVertexBuffer();
         try self.createIndexBuffer();
+        try self.createUniformBuffers();
         try self.createCommandBuffers();
         try self.createSyncObjects();
     }
@@ -478,6 +489,30 @@ pub const Stone = struct {
         );
     }
 
+    /// Sets up the descriptor for the ubo in the vertex shader.
+    fn createDescriptorSetLayout(self: *Stone) !void {
+        const ubo_layout_bindings = [_]vk.DescriptorSetLayoutBinding{.{
+            .binding = 0,
+            .descriptor_type = .uniform_buffer,
+            .descriptor_count = 1,
+            .stage_flags = .{
+                .vertex_bit = true,
+            },
+            .p_immutable_samplers = null,
+        }};
+
+        const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
+            .s_type = .descriptor_set_layout_create_info,
+            .binding_count = ubo_layout_bindings.len,
+            .p_bindings = &ubo_layout_bindings,
+        };
+
+        self.descriptor_set_layout = try self.logical_device.createDescriptorSetLayout(
+            &layout_info,
+            null,
+        );
+    }
+
     /// Creates the graphics pipeline for the application.
     fn createGraphicsPipeline(self: *Stone) !void {
         self.graphics_pipeline = try .init(self);
@@ -537,6 +572,11 @@ pub const Stone = struct {
     /// Creates an index buffer for indexing into the vertex buffer.
     fn createIndexBuffer(self: *Stone) !void {
         self.index_buffer = try .init(self);
+    }
+
+    /// Allocates and sets the per-frame uniform buffers
+    fn createUniformBuffers(self: *Stone) !void {
+        self.uniform_buffers = try .init(self);
     }
 
     /// Creates the applications command buffer whose lifetime is tied to the command pool.

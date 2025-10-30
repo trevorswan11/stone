@@ -8,6 +8,7 @@ const glfw = @import("../glfw.zig");
 const launcher = @import("../../launcher.zig");
 
 const pipeline = @import("pipeline.zig");
+const draw = @import("draw.zig");
 
 /// A generic buffer implementation.
 ///
@@ -271,6 +272,79 @@ pub const IndexBuffer = struct {
         self.buffer.deinit(logical_device);
     }
 };
+
+pub const NativeMat4 = [4]pipeline.Mat4.VecType.VecType;
+pub const NativeUniformBufferObject = struct {
+    model: NativeMat4,
+    view: NativeMat4,
+    proj: NativeMat4,
+
+    pub fn init(op: OpUniformBufferObject) NativeUniformBufferObject {
+        return .{
+            .model = op.model.mat,
+            .view = op.view.mat,
+            .proj = op.proj.mat,
+        };
+    }
+};
+
+pub const OpMat4 = pipeline.Mat4;
+pub const OpUniformBufferObject = struct {
+    model: OpMat4 = .splat(0.0),
+    view: OpMat4 = .splat(0.0),
+    proj: OpMat4 = .splat(0.0),
+};
+
+pub const UniformBuffers = struct {
+    buffers: []Buffer,
+    mapped: []*anyopaque,
+
+    pub fn init(stone: *launcher.Stone) !UniformBuffers {
+        const buffer_size = @sizeOf(NativeUniformBufferObject);
+
+        var self: UniformBuffers = undefined;
+        self.buffers = try stone.allocator.alloc(Buffer, draw.max_frames_in_flight);
+        self.mapped = try stone.allocator.alloc(*anyopaque, draw.max_frames_in_flight);
+
+        for (self.buffers, self.mapped) |*buf, *map| {
+            buf.* = try .init(
+                stone.logical_device,
+                stone.instance,
+                stone.physical_device.device,
+                buffer_size,
+                .{
+                    .uniform_buffer_bit = true,
+                },
+                .{
+                    .host_visible_bit = true,
+                    .host_coherent_bit = true,
+                },
+            );
+
+            map.* = try stone.logical_device.mapMemory(
+                buf.mem,
+                0,
+                buffer_size,
+                .{},
+            ) orelse return error.MemoryMapFailed;
+        }
+
+        return self;
+    }
+
+    pub fn deinit(self: *UniformBuffers, allocator: std.mem.Allocator, logical_device: vk.DeviceProxy) void {
+        defer {
+            allocator.free(self.buffers);
+            allocator.free(self.mapped);
+        }
+
+        for (self.buffers) |*buf| {
+            logical_device.unmapMemory(buf.mem);
+            buf.deinit(logical_device);
+        }
+    }
+};
+
 /// Determines the correct GPU memory to use based on the buffer and physical device.
 ///
 /// Necessary as the GPU has different memory regions that allow different operations and performance optimizations.

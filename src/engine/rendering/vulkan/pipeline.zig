@@ -3,6 +3,7 @@ const std = @import("std");
 const core = @import("core");
 pub const Vec2 = core.Vector(f32, 2);
 pub const Vec3 = core.Vector(f32, 3);
+pub const Mat4 = core.Matrix(f32, 4, 4);
 
 const vulkan = @import("vulkan.zig");
 const vk = vulkan.lib;
@@ -100,7 +101,6 @@ pub const Graphics = struct {
             .p_vertex_attribute_descriptions = &attributes,
         };
 
-        // TODO: Update when drawing more than just triangles?
         const input_assembly: vk.PipelineInputAssemblyStateCreateInfo = .{
             .s_type = .pipeline_input_assembly_state_create_info,
             .topology = .triangle_list,
@@ -183,8 +183,8 @@ pub const Graphics = struct {
 
         const pipeline_layout_info: vk.PipelineLayoutCreateInfo = .{
             .s_type = .pipeline_layout_create_info,
-            .set_layout_count = 0,
-            .p_set_layouts = null,
+            .set_layout_count = 1,
+            .p_set_layouts = @ptrCast(&stone.descriptor_set_layout),
             .push_constant_range_count = 0,
             .p_push_constant_ranges = null,
         };

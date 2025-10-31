@@ -17,6 +17,44 @@ pub const max_frames_in_flight = 2;
 pub const Command = struct {
     pool: vk.CommandPool = undefined,
     buffers: []vk.CommandBuffer = undefined,
+    compute_buffers: []vk.CommandBuffer = undefined,
+
+    pub fn init(stone: *launcher.Stone) !Command {
+        var self: Command = .{};
+
+        // Graphics pass
+        self.buffers = try stone.allocator.alloc(vk.CommandBuffer, max_frames_in_flight);
+        const compute_alloc_info: vk.CommandBufferAllocateInfo = .{
+            .command_pool = stone.command.pool,
+            .level = .primary,
+            .command_buffer_count = @intCast(self.buffers.len),
+        };
+
+        try stone.logical_device.allocateCommandBuffers(
+            &compute_alloc_info,
+            self.buffers.ptr,
+        );
+
+        // Compute pass
+        self.compute_buffers = try stone.allocator.alloc(vk.CommandBuffer, max_frames_in_flight);
+        const graphics_alloc_info: vk.CommandBufferAllocateInfo = .{
+            .command_pool = stone.command.pool,
+            .level = .primary,
+            .command_buffer_count = @intCast(self.compute_buffers.len),
+        };
+
+        try stone.logical_device.allocateCommandBuffers(
+            &graphics_alloc_info,
+            self.compute_buffers.ptr,
+        );
+
+        return self;
+    }
+
+    pub fn deinit(self: *Command, allocator: std.mem.Allocator) void {
+        allocator.free(self.buffers);
+        allocator.free(self.compute_buffers);
+    }
 
     /// Writes the commands wanted to execute to the command buffer.
     pub fn recordBuffer(
@@ -26,13 +64,9 @@ pub const Command = struct {
         current_frame: u32,
     ) !void {
         // Kick off the command buffer, flags van be used to specify usage constraints
-        const begin_info: vk.CommandBufferBeginInfo = .{
-            .p_inheritance_info = null,
-        };
-
         try stone.logical_device.beginCommandBuffer(
             buffer,
-            &begin_info,
+            &.{},
         );
 
         const clear_colors = [_]vk.ClearValue{
@@ -102,7 +136,7 @@ pub const Command = struct {
 
         // Now we can finally draw and end the render pass
         const vertex_buffers = [_]vk.Buffer{
-            stone.vertex_buffer.buffer.buf,
+            stone.vertex_buffer.buffer.handle,
         };
         const offsets = [_]vk.DeviceSize{0};
         stone.logical_device.cmdBindVertexBuffers(
@@ -115,7 +149,7 @@ pub const Command = struct {
 
         stone.logical_device.cmdBindIndexBuffer(
             buffer,
-            stone.index_buffer.buffer.buf,
+            stone.index_buffer.buffer.handle,
             0,
             pipeline.index_type,
         );
@@ -144,8 +178,41 @@ pub const Command = struct {
         try stone.logical_device.endCommandBuffer(buffer);
     }
 
-    pub fn deinit(self: *Command, allocator: std.mem.Allocator) void {
-        allocator.free(self.buffers);
+    pub fn recordComputeCommandBuffer(
+        stone: *launcher.Stone,
+        buffer: vk.CommandBuffer,
+        current_frame: u32,
+    ) !void {
+        try stone.logical_device.beginCommandBuffer(
+            buffer,
+            &.{},
+        );
+
+        stone.logical_device.cmdBindPipeline(
+            buffer,
+            .compute,
+            stone.compute_pipeline.pipeline,
+        );
+
+        stone.logical_device.cmdBindDescriptorSets(
+            buffer,
+            .compute,
+            stone.compute_pipeline.layout,
+            0,
+            1,
+            @ptrCast(&stone.descriptor_sets[current_frame]),
+            0,
+            null,
+        );
+
+        stone.logical_device.cmdDispatch(
+            buffer,
+            buffer_.max_particles / 256,
+            1,
+            1,
+        );
+
+        try stone.logical_device.endCommandBuffer(buffer);
     }
 };
 
@@ -157,21 +224,72 @@ pub const Command = struct {
 /// - Present the swapchain image
 pub fn drawFrame(stone: *launcher.Stone) !void {
     const current_frame = stone.syncs.current_frame;
-    const wait_semaphores = [_]vk.Semaphore{
+
+    // Compute Submission
+    const compute_command_buffers = [_]vk.CommandBuffer{
+        stone.command.compute_buffers[current_frame],
+    };
+
+    const compute_signal_semaphores = [_]vk.Semaphore{
+        stone.syncs.compute_finished_semaphores[current_frame],
+    };
+
+    const compute_fences = [_]vk.Fence{
+        stone.syncs.compute_in_flight_fences[current_frame],
+    };
+
+    _ = try stone.logical_device.waitForFences(
+        compute_fences.len,
+        &compute_fences,
+        .true,
+        std.math.maxInt(u64),
+    );
+
+    updateUniformBuffer(stone, current_frame);
+
+    try stone.logical_device.resetFences(compute_fences.len, &compute_fences);
+
+    try stone.logical_device.resetCommandBuffer(stone.command.compute_buffers[current_frame], .{});
+    try Command.recordComputeCommandBuffer(
+        stone,
+        stone.command.compute_buffers[current_frame],
+        current_frame,
+    );
+
+    const compute_submit_info = [_]vk.SubmitInfo{.{
+        .command_buffer_count = @intCast(compute_command_buffers.len),
+        .p_command_buffers = &compute_command_buffers,
+        .signal_semaphore_count = @intCast(compute_signal_semaphores.len),
+        .p_signal_semaphores = &compute_signal_semaphores,
+    }};
+
+    try stone.logical_device.queueSubmit(
+        stone.compute_queue.handle,
+        @intCast(compute_submit_info.len),
+        &compute_submit_info,
+        stone.syncs.compute_in_flight_fences[current_frame],
+    );
+
+    // Graphics Submission
+    const graphics_command_buffers = [_]vk.CommandBuffer{
+        stone.command.buffers[current_frame],
+    };
+
+    const graphics_wait_semaphores = [_]vk.Semaphore{
         stone.syncs.image_available_semaphores[current_frame],
     };
-    const signal_semaphores = [_]vk.Semaphore{
+    const graphics_signal_semaphores = [_]vk.Semaphore{
         stone.syncs.render_finished_semaphores[current_frame],
     };
 
-    const fences = [_]vk.Fence{
+    const graphics_fences = [_]vk.Fence{
         stone.syncs.in_flight_fences[current_frame],
     };
 
     // We have to wait for the device to be ready before acquiring
     _ = try stone.logical_device.waitForFences(
-        fences.len,
-        &fences,
+        1,
+        &graphics_fences,
         .true,
         comptime std.math.maxInt(u64),
     );
@@ -192,8 +310,7 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
         else => return error.SwapchainPresentFailed,
     };
 
-    updateUniformBuffer(stone, current_frame);
-    try stone.logical_device.resetFences(fences.len, &fences);
+    try stone.logical_device.resetFences(graphics_fences.len, &graphics_fences);
 
     // Now we record the command buffer, but reset first!
     try stone.logical_device.resetCommandBuffer(stone.command.buffers[current_frame], .{});
@@ -204,35 +321,31 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
         current_frame,
     );
 
-    const command_buffers = [_]vk.CommandBuffer{
-        stone.command.buffers[current_frame],
-    };
-
     // Now the buffer is fully recorded and can be submitted
-    const submit_info = [_]vk.SubmitInfo{.{
-        .wait_semaphore_count = @intCast(wait_semaphores.len),
-        .p_wait_semaphores = &wait_semaphores,
+    const graphics_submit_info = [_]vk.SubmitInfo{.{
+        .wait_semaphore_count = @intCast(graphics_wait_semaphores.len),
+        .p_wait_semaphores = &graphics_wait_semaphores,
         .p_wait_dst_stage_mask = @ptrCast(&vk.PipelineStageFlags{
             .color_attachment_output_bit = true,
         }),
-        .command_buffer_count = @intCast(command_buffers.len),
-        .p_command_buffers = &command_buffers,
-        .signal_semaphore_count = @intCast(signal_semaphores.len),
-        .p_signal_semaphores = &signal_semaphores,
+        .command_buffer_count = @intCast(graphics_command_buffers.len),
+        .p_command_buffers = &graphics_command_buffers,
+        .signal_semaphore_count = @intCast(graphics_signal_semaphores.len),
+        .p_signal_semaphores = &graphics_signal_semaphores,
     }};
 
     try stone.logical_device.queueSubmit(
         stone.graphics_queue.handle,
-        @intCast(submit_info.len),
-        &submit_info,
+        @intCast(graphics_submit_info.len),
+        &graphics_submit_info,
         stone.syncs.in_flight_fences[current_frame],
     );
 
     // Now we present!
     const swapchains = [_]vk.SwapchainKHR{stone.swapchain.handle};
     const present_info: vk.PresentInfoKHR = .{
-        .wait_semaphore_count = @intCast(signal_semaphores.len),
-        .p_wait_semaphores = &signal_semaphores,
+        .wait_semaphore_count = @intCast(graphics_signal_semaphores.len),
+        .p_wait_semaphores = &graphics_signal_semaphores,
         .swapchain_count = @intCast(swapchains.len),
         .p_swapchains = &swapchains,
         .p_image_indices = @ptrCast(&image_index),
@@ -270,6 +383,7 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
     const height: f32 = @floatFromInt(stone.swapchain.extent.height);
 
     const ubo: buffer_.OpUniformBufferObject = .{
+        .dt = stone.timestep.dt,
         .model = core.mat.rotate(
             f32,
             comptime .identity(1.0),

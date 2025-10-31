@@ -200,8 +200,8 @@ pub const DeviceCandidate = struct {
 
         for (queue_families, 0..) |queue_family, i| {
             const i_casted: u32 = @intCast(i);
-            if (queue_family.queue_flags.graphics_bit) {
-                indices.graphics_family = i_casted;
+            if (queue_family.queue_flags.graphics_bit and queue_family.queue_flags.compute_bit) {
+                indices.graphics_compute_family = i_casted;
             }
 
             if ((try self.instance.getPhysicalDeviceSurfaceSupportKHR(
@@ -260,11 +260,11 @@ pub const DeviceCandidate = struct {
 };
 
 pub const QueueFamilyIndices = struct {
-    graphics_family: ?u32 = null,
+    graphics_compute_family: ?u32 = null,
     present_family: ?u32 = null,
 
     pub fn complete(self: QueueFamilyIndices) bool {
-        return self.graphics_family != null and self.present_family != null;
+        return self.graphics_compute_family != null and self.present_family != null;
     }
 };
 

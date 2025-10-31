@@ -4,12 +4,7 @@ const gpu = std.gpu;
 const core = @import("core/root.zig");
 const Mat4 = core.common.Mat4;
 const Vec4 = core.common.Vec4;
-
-const UniformBufferObject = extern struct {
-    model: Mat4,
-    view: Mat4,
-    proj: Mat4,
-};
+const UniformBufferObject = core.UniformBufferObject;
 
 extern const ubo: UniformBufferObject addrspace(.uniform);
 

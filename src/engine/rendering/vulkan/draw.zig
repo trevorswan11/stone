@@ -285,7 +285,6 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
             comptime .splat(2.0),
             comptime .splat(0.0),
             comptime .init(.{ 0.0, 0.0, 1.0 }),
-            .rh,
         ),
         .proj = core.mat.perspective(
             f32,

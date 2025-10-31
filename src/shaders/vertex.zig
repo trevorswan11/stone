@@ -1,9 +1,9 @@
 const std = @import("std");
 const gpu = std.gpu;
 
-const math = @import("math.zig");
-const Mat4 = math.Mat4;
-const Vec4 = math.Vec4;
+const core = @import("core/root.zig");
+const Mat4 = core.common.Mat4;
+const Vec4 = core.common.Vec4;
 
 const UniformBufferObject = extern struct {
     model: Mat4,

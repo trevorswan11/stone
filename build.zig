@@ -27,6 +27,14 @@ pub fn build(b: *std.Build) !void {
         else => return error.UnsupportedTarget,
     }
 
+    // Standalone shader compute module, add to Shaders once windows build issue resolved
+    const shader_core = b.addModule("core", .{
+        .root_source_file = b.path("src/shaders/core/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = false,
+    });
+
     const core = b.addModule("core", .{
         .root_source_file = b.path("src/core/root.zig"),
         .target = target,
@@ -75,15 +83,22 @@ pub fn build(b: *std.Build) !void {
     // Add necessary steps and remaining artifacts
     const test_step = b.step("test", "Run core tests");
     const core_tests = addToTestStep(b, core, test_step);
+    const shader_tests = addToTestStep(b, shader_core, test_step);
 
-    const gest_test = b.step("gtest", "Run graphics tests");
-    const stone_tests = addToTestStep(b, stone.root_module, gest_test);
-    const engine_tests = addToTestStep(b, engine, gest_test);
+    const gest_step = b.step("gtest", "Run graphics tests");
+    const stone_tests = addToTestStep(b, stone.root_module, gest_step);
+    const engine_tests = addToTestStep(b, engine, gest_step);
+    const shader_gests = addToTestStep(b, shader_core, gest_step);
 
-    const compiles = addCoreExamples(b, core, target, optimize) ++ .{ stone_tests, core_tests, engine_tests };
+    const compiles = addCoreExamples(
+        b,
+        core,
+        target,
+        optimize,
+    ) ++ .{ stone_tests, core_tests, engine_tests, shader_tests, shader_gests };
 
     addGraphicsDeps(b, stone, .{ stone_tests.root_module, engine_tests.root_module }, target);
-    try addShaders(b, stone, .{ test_step, gest_test }, compiles, &.{
+    try addShaders(b, stone, .{ test_step, gest_step }, compiles, &.{
         .{ .name = "vertex_shader", .source_path = "src/shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "src/shaders/fragment.zig", .destination_name = "fragment.spv" },
     });

@@ -194,56 +194,20 @@ pub fn rotate(
     return mat.mul(4, rotated);
 }
 
-/// Computes the LHS view matrix.
-///
-/// Asserts that T is a float.
-fn lookAtLH(
-    comptime T: type,
-    eye: Vector(T, 3),
-    center: Vector(T, 3),
-    up: Vector(T, 3),
-) Matrix(T, 4, 4) {
-    comptime std.debug.assert(@typeInfo(T) == .float);
-
-    const Mat = Matrix(T, 4, 4);
-    const Vec = Vector(T, 3);
-
-    const f_raw: Vec = .spawn(center.vec - eye.vec);
-    const f = f_raw.normalize();
-    const s = up.cross(f).normalize();
-    const u = f.cross(s);
-
-    var out: Mat = .identity(1.0);
-
-    out.mat[0].vec[0] = s.vec[0];
-    out.mat[0].vec[1] = s.vec[1];
-    out.mat[0].vec[2] = s.vec[2];
-
-    out.mat[1].vec[0] = u.vec[0];
-    out.mat[1].vec[1] = u.vec[1];
-    out.mat[1].vec[2] = u.vec[2];
-
-    out.mat[2].vec[0] = f.vec[0];
-    out.mat[2].vec[1] = f.vec[1];
-    out.mat[2].vec[2] = f.vec[2];
-
-    out.mat[0].vec[3] = -s.dot(eye);
-    out.mat[1].vec[3] = -u.dot(eye);
-    out.mat[2].vec[3] = -f.dot(eye);
-
-    return out;
-}
-
 /// Computes the RHS view matrix.
 ///
-/// Asserts that T is a float.
-fn lookAtRH(
+/// Implementation from glm: https://github.com/g-truc/glm
+///
+/// T must be a float.
+pub fn lookAt(
     comptime T: type,
     eye: Vector(T, 3),
     center: Vector(T, 3),
     up: Vector(T, 3),
 ) Matrix(T, 4, 4) {
-    comptime std.debug.assert(@typeInfo(T) == .float);
+    comptime if (@typeInfo(T) != .float) {
+        @compileError("lookAt is only defined for floats");
+    };
 
     const Mat = Matrix(T, 4, 4);
     const Vec = Vector(T, 3);
@@ -272,28 +236,6 @@ fn lookAtRH(
     out.mat[2].vec[3] = f.dot(eye);
 
     return out;
-}
-
-/// Computes the specified view matrix.
-///
-/// Implementation from glm: https://github.com/g-truc/glm
-///
-/// T must be a float.
-pub fn lookAt(
-    comptime T: type,
-    eye: Vector(T, 3),
-    center: Vector(T, 3),
-    up: Vector(T, 3),
-    comptime flavor: enum { lh, rh },
-) Matrix(T, 4, 4) {
-    comptime if (@typeInfo(T) != .float) {
-        @compileError("lookAt is only defined for floats");
-    };
-
-    return switch (flavor) {
-        .lh => lookAtLH(T, eye, center, up),
-        .rh => lookAtRH(T, eye, center, up),
-    };
 }
 
 /// Creates the perspective matrix from the scene parameters.
@@ -535,30 +477,16 @@ test "lookAt and its variants" {
     const center: Vec3 = .init(.{ 0, 0, 0 });
     const up: Vec3 = .init(.{ 0, 1, 0 });
 
-    // LH calculation
-    const m_lh = lookAt(T, eye, center, up, .lh);
-    const expected_lh_data = [_]T{
-        -1, 0, 0,  0,
-        0,  1, 0,  0,
-        0,  0, -1, 1,
-        0,  0, 0,  1,
-    };
-    const expected_lh = Mat4.init(expected_lh_data);
-    for (0..expected_lh.dims.numel) |i| {
-        try expectApproxEqAbs(expected_lh.at(i), m_lh.at(i), epsilon);
-    }
-
-    // RH calculation
-    const m_rh = lookAt(T, eye, center, up, .rh);
-    const expected_rh_data = [_]T{
+    const mat = lookAt(T, eye, center, up);
+    const expected_data = [_]T{
         1, 0, 0, 0,
         0, 1, 0, 0,
         0, 0, 1, -1,
         0, 0, 0, 1,
     };
-    const expected_rh = Mat4.init(expected_rh_data);
-    for (0..expected_rh.dims.numel) |i| {
-        try expectApproxEqAbs(expected_rh.at(i), m_rh.at(i), epsilon);
+    const expected = Mat4.init(expected_data);
+    for (0..expected.dims.numel) |i| {
+        try expectApproxEqAbs(expected.at(i), mat.at(i), epsilon);
     }
 }
 

@@ -23,7 +23,6 @@ pub const Syncs = struct {
     pub fn init(stone: *launcher.Stone) !Syncs {
         const semaphore_info: vk.SemaphoreCreateInfo = .{};
         const fence_info: vk.FenceCreateInfo = .{
-            .s_type = .fence_create_info,
             .flags = .{
                 .signaled_bit = true,
             },

@@ -27,7 +27,6 @@ pub const Swapchain = struct {
         );
 
         var create_info: vk.SwapchainCreateInfoKHR = .{
-            .s_type = .swapchain_create_info_khr,
             .surface = stone.surface,
             .min_image_count = image_count,
             .image_format = self.image_format,

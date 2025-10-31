@@ -27,7 +27,6 @@ pub const Buffer = struct {
         properties: vk.MemoryPropertyFlags,
     ) !Buffer {
         const buffer_info: vk.BufferCreateInfo = .{
-            .s_type = .buffer_create_info,
             .size = size,
             .usage = usage,
             .sharing_mode = .exclusive,
@@ -41,7 +40,6 @@ pub const Buffer = struct {
         // Allocate the memory for the buffer - coherent set to prevent caching from messing with memory
         const memory_requirements = logical_device.getBufferMemoryRequirements(buffer);
         const alloc_info: vk.MemoryAllocateInfo = .{
-            .s_type = .memory_allocate_info,
             .allocation_size = memory_requirements.size,
             .memory_type_index = try findMemoryType(
                 instance,
@@ -81,7 +79,6 @@ pub const Buffer = struct {
         size: vk.DeviceSize,
     ) !void {
         const alloc_info: vk.CommandBufferAllocateInfo = .{
-            .s_type = .command_buffer_allocate_info,
             .level = .primary,
             .command_pool = command_pool,
             .command_buffer_count = 1,
@@ -93,7 +90,6 @@ pub const Buffer = struct {
         defer logical_device.freeCommandBuffers(command_pool, 1, @ptrCast(&command_buffer));
 
         const begin_info: vk.CommandBufferBeginInfo = .{
-            .s_type = .command_buffer_begin_info,
             .flags = .{
                 .one_time_submit_bit = true,
             },
@@ -116,7 +112,6 @@ pub const Buffer = struct {
 
         // Now execute the command buffer to complete the copy
         const submit_infos = [_]vk.SubmitInfo{.{
-            .s_type = .submit_info,
             .command_buffer_count = 1,
             .p_command_buffers = @ptrCast(&command_buffer),
         }};

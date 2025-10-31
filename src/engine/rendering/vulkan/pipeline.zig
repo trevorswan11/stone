@@ -37,7 +37,6 @@ pub fn createShaderModule(
     };
 
     const shader_create_info: vk.ShaderModuleCreateInfo = .{
-        .s_type = .shader_module_create_info,
         .code_size = len,
         .p_code = module,
     };
@@ -66,7 +65,6 @@ pub const Graphics = struct {
         defer stone.logical_device.destroyShaderModule(vert, null);
 
         const vert_stage_info: vk.PipelineShaderStageCreateInfo = .{
-            .s_type = .pipeline_shader_stage_create_info,
             .stage = .{
                 .vertex_bit = true,
             },
@@ -78,7 +76,6 @@ pub const Graphics = struct {
         defer stone.logical_device.destroyShaderModule(frag, null);
 
         const frag_stage_info: vk.PipelineShaderStageCreateInfo = .{
-            .s_type = .pipeline_shader_stage_create_info,
             .stage = .{
                 .fragment_bit = true,
             },
@@ -94,7 +91,6 @@ pub const Graphics = struct {
         const binding = Vertex.bindingDescription();
         const attributes = Vertex.attributeDescriptions();
         const vertex_input_info: vk.PipelineVertexInputStateCreateInfo = .{
-            .s_type = .pipeline_vertex_input_state_create_info,
             .vertex_binding_description_count = 1,
             .p_vertex_binding_descriptions = @ptrCast(&binding),
             .vertex_attribute_description_count = attributes.len,
@@ -102,14 +98,12 @@ pub const Graphics = struct {
         };
 
         const input_assembly: vk.PipelineInputAssemblyStateCreateInfo = .{
-            .s_type = .pipeline_input_assembly_state_create_info,
             .topology = .triangle_list,
             .primitive_restart_enable = .false,
         };
 
         // This allows us to change a small subset of the pipeline with recreating it
         const dynamic_state: vk.PipelineDynamicStateCreateInfo = .{
-            .s_type = .pipeline_dynamic_state_create_info,
             .dynamic_state_count = @intCast(vulkan.dynamic_states.len),
             .p_dynamic_states = &vulkan.dynamic_states,
         };
@@ -118,13 +112,11 @@ pub const Graphics = struct {
         self.viewport_count = 1;
         self.scissor_count = 1;
         const viewport_state: vk.PipelineViewportStateCreateInfo = .{
-            .s_type = .pipeline_viewport_state_create_info,
             .viewport_count = @intCast(self.viewport_count),
             .scissor_count = @intCast(self.scissor_count),
         };
 
         const rasterizer: vk.PipelineRasterizationStateCreateInfo = .{
-            .s_type = .pipeline_rasterization_state_create_info,
             .depth_clamp_enable = .false,
             .rasterizer_discard_enable = .false,
 
@@ -144,7 +136,6 @@ pub const Graphics = struct {
 
         // Configures multisampling - approach to anti-aliasing. Disabled for now
         const multisampling: vk.PipelineMultisampleStateCreateInfo = .{
-            .s_type = .pipeline_multisample_state_create_info,
             .sample_shading_enable = .false,
             .rasterization_samples = .{
                 .@"1_bit" = true,
@@ -173,7 +164,6 @@ pub const Graphics = struct {
         }};
 
         const color_blending: vk.PipelineColorBlendStateCreateInfo = .{
-            .s_type = .pipeline_color_blend_state_create_info,
             .logic_op_enable = .false,
             .logic_op = .copy,
             .attachment_count = @intCast(color_blend_attachment.len),
@@ -182,7 +172,6 @@ pub const Graphics = struct {
         };
 
         const pipeline_layout_info: vk.PipelineLayoutCreateInfo = .{
-            .s_type = .pipeline_layout_create_info,
             .set_layout_count = 1,
             .p_set_layouts = @ptrCast(&stone.descriptor_set_layout),
             .push_constant_range_count = 0,
@@ -196,7 +185,6 @@ pub const Graphics = struct {
         );
 
         const pipeline_info = [_]vk.GraphicsPipelineCreateInfo{.{
-            .s_type = .graphics_pipeline_create_info,
             .stage_count = 2,
             .p_stages = &shader_stages,
             .p_vertex_input_state = &vertex_input_info,

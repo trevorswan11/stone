@@ -194,7 +194,6 @@ pub const Stone = struct {
         }
 
         const app_info: vk.ApplicationInfo = .{
-            .s_type = .application_info,
             .p_application_name = app_name,
             .application_version = vulkan.makeVersion(0, 1, 0, 0),
             .p_engine_name = "No Engine",
@@ -319,7 +318,6 @@ pub const Stone = struct {
         const queue_priority: f32 = 1.0;
         for (unique_queue_families.keys()) |queue_family| {
             try queue_create_infos.append(self.allocator, .{
-                .s_type = .device_queue_create_info,
                 .queue_family_index = queue_family,
                 .queue_count = 1,
                 .p_queue_priorities = @ptrCast(&queue_priority),
@@ -329,13 +327,11 @@ pub const Stone = struct {
         // Use the filtered queue families to create the device - add shader_int_8 to appease the vulkan overlords
         const device_features = self.physical_device.features;
         const vk12_features: vk.PhysicalDeviceVulkan12Features = .{
-            .s_type = .physical_device_vulkan_1_2_features,
             .p_next = null,
             .shader_int_8 = .true,
         };
 
         const device_create_info: vk.DeviceCreateInfo = .{
-            .s_type = .device_create_info,
             .queue_create_info_count = @intCast(queue_create_infos.items.len),
             .p_queue_create_infos = queue_create_infos.items.ptr,
             .p_enabled_features = &device_features,
@@ -427,7 +423,6 @@ pub const Stone = struct {
             self.swapchain_lists.images,
         ) |*image_view, image| {
             const image_view_create_info: vk.ImageViewCreateInfo = .{
-                .s_type = .image_view_create_info,
                 .image = image,
                 .view_type = .@"2d",
                 .format = self.swapchain.image_format,
@@ -498,7 +493,6 @@ pub const Stone = struct {
 
         // Creates the render pass object for use in the remainder of the program
         const render_pass_info: vk.RenderPassCreateInfo = .{
-            .s_type = .render_pass_create_info,
             .attachment_count = color_attachment.len,
             .p_attachments = &color_attachment,
             .subpass_count = subpass.len,
@@ -526,7 +520,6 @@ pub const Stone = struct {
         }};
 
         const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
-            .s_type = .descriptor_set_layout_create_info,
             .binding_count = ubo_layout_bindings.len,
             .p_bindings = &ubo_layout_bindings,
         };
@@ -556,7 +549,6 @@ pub const Stone = struct {
             const attachments = [_]vk.ImageView{image_view};
 
             const framebuffer_info: vk.FramebufferCreateInfo = .{
-                .s_type = .framebuffer_create_info,
                 .render_pass = self.render_pass,
                 .attachment_count = @intCast(attachments.len),
                 .p_attachments = &attachments,
@@ -575,7 +567,6 @@ pub const Stone = struct {
     /// Creates the command pools which manage memory related to buffer storage.
     fn createCommandPool(self: *Stone) !void {
         const pool_info: vk.CommandPoolCreateInfo = .{
-            .s_type = .command_pool_create_info,
             .flags = .{
                 .reset_command_buffer_bit = true,
             },
@@ -611,7 +602,6 @@ pub const Stone = struct {
         }};
 
         const pool_info: vk.DescriptorPoolCreateInfo = .{
-            .s_type = .descriptor_pool_create_info,
             .pool_size_count = pool_sizes.len,
             .p_pool_sizes = &pool_sizes,
             .max_sets = draw.max_frames_in_flight,
@@ -627,7 +617,6 @@ pub const Stone = struct {
     fn createDescriptorSets(self: *Stone) !void {
         var layouts: [draw.max_frames_in_flight]vk.DescriptorSetLayout = @splat(self.descriptor_set_layout);
         const alloc_info: vk.DescriptorSetAllocateInfo = .{
-            .s_type = .descriptor_set_allocate_info,
             .descriptor_pool = self.descriptor_pool,
             .descriptor_set_count = draw.max_frames_in_flight,
             .p_set_layouts = &layouts,
@@ -647,7 +636,6 @@ pub const Stone = struct {
             }};
 
             const descriptor_writes = [_]vk.WriteDescriptorSet{.{
-                .s_type = .write_descriptor_set,
                 .dst_set = self.descriptor_sets[i],
                 .dst_binding = 0,
                 .dst_array_element = 0,
@@ -671,7 +659,6 @@ pub const Stone = struct {
     fn createCommandBuffers(self: *Stone) !void {
         self.command.buffers = try self.allocator.alloc(vk.CommandBuffer, draw.max_frames_in_flight);
         const alloc_info: vk.CommandBufferAllocateInfo = .{
-            .s_type = .command_buffer_allocate_info,
             .command_pool = self.command.pool,
             .level = .primary,
             .command_buffer_count = @intCast(self.command.buffers.len),

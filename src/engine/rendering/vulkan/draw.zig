@@ -27,7 +27,6 @@ pub const Command = struct {
     ) !void {
         // Kick off the command buffer, flags van be used to specify usage constraints
         const begin_info: vk.CommandBufferBeginInfo = .{
-            .s_type = .command_buffer_begin_info,
             .p_inheritance_info = null,
         };
 
@@ -43,7 +42,6 @@ pub const Command = struct {
         // Drawing starts with a configured render pass
         std.debug.assert(image_idx < stone.swapchain_lists.framebuffers.len);
         const render_pass_info: vk.RenderPassBeginInfo = .{
-            .s_type = .render_pass_begin_info,
             .render_pass = stone.render_pass,
             .framebuffer = stone.swapchain_lists.framebuffers[image_idx],
             .render_area = .{
@@ -212,7 +210,6 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
 
     // Now the buffer is fully recorded and can be submitted
     const submit_info = [_]vk.SubmitInfo{.{
-        .s_type = .submit_info,
         .wait_semaphore_count = @intCast(wait_semaphores.len),
         .p_wait_semaphores = &wait_semaphores,
         .p_wait_dst_stage_mask = @ptrCast(&vk.PipelineStageFlags{
@@ -234,7 +231,6 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
     // Now we present!
     const swapchains = [_]vk.SwapchainKHR{stone.swapchain.handle};
     const present_info: vk.PresentInfoKHR = .{
-        .s_type = .present_info_khr,
         .wait_semaphore_count = @intCast(signal_semaphores.len),
         .p_wait_semaphores = &signal_semaphores,
         .swapchain_count = @intCast(swapchains.len),

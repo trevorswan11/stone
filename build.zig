@@ -101,6 +101,7 @@ pub fn build(b: *std.Build) !void {
     try addShaders(b, stone, .{ test_step, gest_step }, compiles, &.{
         .{ .name = "vertex_shader", .source_path = "src/shaders/vertex.zig", .destination_name = "vertex.spv" },
         .{ .name = "fragment_shader", .source_path = "src/shaders/fragment.zig", .destination_name = "fragment.spv" },
+        .{ .name = "compute_shader", .source_path = "src/shaders/compute.zig", .destination_name = "compute.spv" },
     });
     addUtils(b);
     addRunStep(b, stone);

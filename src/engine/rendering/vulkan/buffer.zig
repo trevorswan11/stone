@@ -10,6 +10,8 @@ const launcher = @import("../../launcher.zig");
 const pipeline = @import("pipeline.zig");
 const draw = @import("draw.zig");
 
+const particle = @import("../sph/particle.zig");
+
 /// A generic buffer implementation.
 ///
 /// Simply determines and allocates memory based on initialization properties.
@@ -270,7 +272,7 @@ pub const IndexBuffer = struct {
 
 pub const NativeMat4 = [4]pipeline.Mat4.VecType.VecType;
 pub const NativeUniformBufferObject = struct {
-    dt: f32,
+    dt: f32 align(16),
     model: NativeMat4 align(16),
     view: NativeMat4 align(16),
     proj: NativeMat4 align(16),
@@ -351,83 +353,25 @@ pub const UniformBuffers = struct {
     }
 };
 
-pub const OpParticle = struct {
-    position: pipeline.Vec2,
-    velocity: pipeline.Vec2,
-    color: pipeline.Vec4,
-
-    /// Creates n particles with random initial conditions.
-    ///
-    /// The caller is responsible for freeing the slice.
-    pub fn spawn(allocator: std.mem.Allocator, seed: u64, n: usize) ![]OpParticle {
-        const particles = try allocator.alloc(OpParticle, n);
-
-        var prng: std.Random.DefaultPrng = .init(seed);
-        const random = prng.random();
-
-        const h_float: f32 = @floatFromInt(launcher.initial_window_height);
-        const w_float: f32 = @floatFromInt(launcher.initial_window_width);
-
-        for (particles) |*particle| {
-            const r = 0.25 * @sqrt(random.float(f32));
-            const theta = random.float(f32) * 2 * std.math.pi;
-            const x = r * @cos(theta) * (h_float / w_float);
-            const y = r * @sin(theta);
-
-            const position: pipeline.Vec2 = .init(.{ x, y });
-            particle.position = position;
-            particle.velocity = position.normalize().scale(0.00025);
-            particle.color = .init(.{
-                random.float(f32),
-                random.float(f32),
-                random.float(f32),
-                1.0,
-            });
-        }
-
-        return particles;
-    }
-};
-
-pub const workgroup_load = 256;
-pub const max_particles = workgroup_load * 32;
-
-const NativeVec2 = pipeline.Vec2.VecType;
-const NativeVec3 = pipeline.Vec3.VecType;
-const NativeVec4 = pipeline.Vec4.VecType;
-pub const NativeParticle = struct {
-    position: NativeVec2,
-    velocity: NativeVec2,
-    color: NativeVec4,
-
-    pub fn init(op: OpParticle) NativeParticle {
-        return .{
-            .position = op.position.vec,
-            .velocity = op.velocity.vec,
-            .color = op.color.vec,
-        };
-    }
-};
-
 pub const StorageBuffers = struct {
     buffers: []Buffer,
 
     pub fn init(stone: *launcher.Stone) !StorageBuffers {
-        const buffer_size = @sizeOf(NativeParticle) * max_particles;
+        const buffer_size = @sizeOf(particle.NativeParticle) * particle.max_particles;
 
         var self: StorageBuffers = undefined;
         self.buffers = try stone.allocator.alloc(Buffer, draw.max_frames_in_flight);
 
         // Initialize particles with random initial positions
-        const op_particles = try OpParticle.spawn(
+        const op_particles = try particle.OpParticle.spawn(
             stone.allocator,
             @bitCast(stone.timestep.start_time_us),
-            max_particles,
+            particle.max_particles,
         );
         defer stone.allocator.free(op_particles);
 
         const native_particles = try stone.allocator.alloc(
-            NativeParticle,
+            particle.NativeParticle,
             op_particles.len,
         );
         defer stone.allocator.free(native_particles);
@@ -460,7 +404,7 @@ pub const StorageBuffers = struct {
         ) orelse return error.MemoryMapFailed;
         defer stone.logical_device.unmapMemory(staging_buffer.mem);
 
-        const casted: [*]NativeParticle = @ptrCast(@alignCast(data));
+        const casted: [*]particle.NativeParticle = @ptrCast(@alignCast(data));
         @memcpy(casted, native_particles);
 
         // Initialize storage objects by copying the staging buffer's mem

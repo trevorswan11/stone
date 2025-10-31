@@ -20,7 +20,9 @@ pub const Command = struct {
     compute_buffers: []vk.CommandBuffer = undefined,
 
     pub fn init(stone: *launcher.Stone) !Command {
-        var self: Command = .{};
+        var self: Command = .{
+            .pool = stone.command.pool,
+        };
 
         // Graphics pass
         self.buffers = try stone.allocator.alloc(vk.CommandBuffer, max_frames_in_flight);
@@ -277,7 +279,6 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
             stone.syncs.compute_in_flight_fences[current_frame],
         );
     }
-
 
     // Graphics Submission
     const graphics_command_buffers = [_]vk.CommandBuffer{

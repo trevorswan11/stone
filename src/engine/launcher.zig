@@ -575,6 +575,8 @@ pub const Stone = struct {
 
     /// Create the compute pipeline for the application.
     fn createComputePipeline(self: *Stone) !void {
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (true) return;
         self.compute_pipeline = try .init(self);
     }
 

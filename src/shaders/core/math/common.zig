@@ -1,17 +1,37 @@
-/// A minimal, SIMD-native 4D Vector representation, aligning with the core module.
-pub const Vec4 = extern struct {
-    raw: @Vector(4, f32),
+pub const Particle = extern struct {
+    position: Vec2,
+    velocity: Vec2,
+    color: Vec4,
+};
 
-    pub fn init(vals: [4]f32) Vec4 {
-        var out: Vec4 = undefined;
-        inline for (0..4) |i| {
+/// A minimal, SIMD-native 3D Vector representation, aligning with the core module.
+pub const Vec2 = extern struct {
+    raw: @Vector(2, f32),
+
+    pub fn init(vals: [2]f32) Vec2 {
+        var out: Vec2 = undefined;
+        inline for (0..2) |i| {
             out.raw[i] = vals[i];
         }
         return out;
     }
 
-    pub fn dot(self: Vec4, other: Vec4) f32 {
+    pub fn splat(val: f32) Vec2 {
+        return .{ .raw = @splat(val) };
+    }
+
+    pub fn dot(self: Vec2, other: Vec2) f32 {
         return @reduce(.Add, self.raw * other.raw);
+    }
+
+    pub fn scale(self: Vec2, val: f32) Vec2 {
+        return .{
+            .raw = self.raw * splat(val).raw,
+        };
+    }
+
+    pub fn add(a: Vec2, b: Vec2) Vec2 {
+        return .{ .raw = a.raw + b.raw };
     }
 };
 
@@ -27,8 +47,45 @@ pub const Vec3 = extern struct {
         return out;
     }
 
+    pub fn splat(val: f32) Vec3 {
+        return .{ .raw = @splat(val) };
+    }
+
     pub fn dot(self: Vec3, other: Vec3) f32 {
         return @reduce(.Add, self.raw * other.raw);
+    }
+
+    pub fn scale(self: Vec3, val: f32) Vec3 {
+        return .{
+            .raw = self.raw * splat(val).raw,
+        };
+    }
+};
+
+/// A minimal, SIMD-native 4D Vector representation, aligning with the core module.
+pub const Vec4 = extern struct {
+    raw: @Vector(4, f32),
+
+    pub fn init(vals: [4]f32) Vec4 {
+        var out: Vec4 = undefined;
+        inline for (0..4) |i| {
+            out.raw[i] = vals[i];
+        }
+        return out;
+    }
+
+    pub fn splat(val: f32) Vec4 {
+        return .{ .raw = @splat(val) };
+    }
+
+    pub fn dot(self: Vec4, other: Vec4) f32 {
+        return @reduce(.Add, self.raw * other.raw);
+    }
+
+    pub fn scale(self: Vec4, val: f32) Vec4 {
+        return .{
+            .raw = self.raw * splat(val).raw,
+        };
     }
 };
 
@@ -96,6 +153,11 @@ const expectApproxEqAbs = testing.expectApproxEqAbs;
 const epsilon = 1e-6;
 
 test "Vec basic operations" {
+    const a2: Vec2 = .init(.{ 1.0, 2.0 });
+    const b2: Vec2 = .init(.{ 2.0, 0.0 });
+    try expectApproxEqAbs(1 * 2 + 2 * 0, a2.dot(b2), epsilon);
+    try expectApproxEqAbs(1 * 1 + 2 * 2, a2.dot(a2), epsilon);
+
     const a3: Vec3 = .init(.{ 1.0, 2.0, 3.0 });
     const b3: Vec3 = .init(.{ 2.0, 0.0, 1.0 });
     try expectApproxEqAbs(1 * 2 + 2 * 0 + 3 * 1, a3.dot(b3), epsilon);

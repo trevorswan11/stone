@@ -18,6 +18,9 @@ pub const Syncs = struct {
     render_finished_semaphores: []vk.Semaphore = undefined,
     in_flight_fences: []vk.Fence = undefined,
 
+    compute_finished_semaphores: []vk.Semaphore = undefined,
+    compute_in_flight_fences: []vk.Fence = undefined,
+
     current_frame: u32 = 0,
 
     pub fn init(stone: *launcher.Stone) !Syncs {
@@ -33,11 +36,17 @@ pub const Syncs = struct {
         self.render_finished_semaphores = try stone.allocator.alloc(vk.Semaphore, draw.max_frames_in_flight);
         self.in_flight_fences = try stone.allocator.alloc(vk.Fence, draw.max_frames_in_flight);
 
+        self.compute_finished_semaphores = try stone.allocator.alloc(vk.Semaphore, draw.max_frames_in_flight);
+        self.compute_in_flight_fences = try stone.allocator.alloc(vk.Fence, draw.max_frames_in_flight);
+
         for (
             self.image_available_semaphores,
             self.render_finished_semaphores,
             self.in_flight_fences,
-        ) |*ias, *rfs, *iff| {
+            self.compute_finished_semaphores,
+            self.compute_in_flight_fences,
+        ) |*ias, *rfs, *iff, *cfs, *cff| {
+            // Graphics
             ias.* = try stone.logical_device.createSemaphore(
                 &semaphore_info,
                 null,
@@ -52,6 +61,17 @@ pub const Syncs = struct {
                 &fence_info,
                 null,
             );
+
+            // Compute
+            cfs.* = try stone.logical_device.createSemaphore(
+                &semaphore_info,
+                null,
+            );
+
+            cff.* = try stone.logical_device.createFence(
+                &fence_info,
+                null,
+            );
         }
 
         return self;
@@ -62,16 +82,24 @@ pub const Syncs = struct {
             allocator.free(self.image_available_semaphores);
             allocator.free(self.render_finished_semaphores);
             allocator.free(self.in_flight_fences);
+
+            allocator.free(self.compute_finished_semaphores);
+            allocator.free(self.compute_in_flight_fences);
         }
 
         for (
             self.image_available_semaphores,
             self.render_finished_semaphores,
             self.in_flight_fences,
-        ) |ias, rfs, iff| {
+            self.compute_finished_semaphores,
+            self.compute_in_flight_fences,
+        ) |ias, rfs, iff, cfs, cff| {
             logical_device.destroySemaphore(ias, null);
             logical_device.destroySemaphore(rfs, null);
             logical_device.destroyFence(iff, null);
+
+            logical_device.destroySemaphore(cfs, null);
+            logical_device.destroyFence(cff, null);
         }
     }
 };

@@ -22,8 +22,8 @@ const LogicalDevice = vk.DeviceProxy;
 
 const app_name = "Stone";
 
-const window_width: u32 = 800;
-const window_height: u32 = 600;
+pub const initial_window_width: u32 = 800;
+pub const initial_window_height: u32 = 600;
 
 pub fn framebufferResizeCallback(
     window: ?*glfw.Window,
@@ -51,21 +51,24 @@ pub const Stone = struct {
 
     graphics_queue: vulkan.Queue = undefined,
     present_queue: vulkan.Queue = undefined,
+    compute_queue: vulkan.Queue = undefined,
 
     swapchain: swapchain_.Swapchain = undefined,
     swapchain_lists: swapchain_.SwapchainLists = .{},
     framebuffer_resized: bool = false,
-
     render_pass: vk.RenderPass = undefined,
+
     graphics_pipeline: pipeline.Graphics = undefined,
+    compute_pipeline: pipeline.Compute = undefined,
 
     descriptor_pool: vk.DescriptorPool = undefined,
-    descriptor_set_layout: vk.DescriptorSetLayout = undefined,
     descriptor_sets: []vk.DescriptorSet = undefined,
+    descriptor_set_layout: vk.DescriptorSetLayout = undefined,
 
     vertex_buffer: buffer.VertexBuffer = undefined,
     index_buffer: buffer.IndexBuffer = undefined,
     uniform_buffers: buffer.UniformBuffers = undefined,
+    storage_buffers: buffer.StorageBuffers = undefined,
 
     command: draw.Command = undefined,
     syncs: sync.Syncs = undefined,
@@ -101,16 +104,25 @@ pub const Stone = struct {
         self.vertex_buffer.deinit(self.logical_device);
         self.index_buffer.deinit(self.logical_device);
         self.uniform_buffers.deinit(self.allocator, self.logical_device);
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (false) {
+            self.storage_buffers.deinit(self.allocator, self.logical_device);
+        }
 
         self.syncs.deinit(self.allocator, &self.logical_device);
         self.logical_device.destroyCommandPool(self.command.pool, null);
 
         self.graphics_pipeline.deinit(&self.logical_device);
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (false) {
+            self.compute_pipeline.deinit(&self.logical_device);
+        }
         self.logical_device.destroyRenderPass(self.render_pass, null);
 
         self.swapchain.deinit(self);
         self.logical_device.destroyDescriptorPool(self.descriptor_pool, null);
         self.logical_device.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
+
         self.logical_device.destroyDevice(null);
         self.instance.destroySurfaceKHR(self.surface, null);
 
@@ -144,8 +156,8 @@ pub const Stone = struct {
         glfw.windowHint(glfw.client_api, glfw.no_api);
 
         self.window = glfw.createWindow(
-            window_width,
-            window_height,
+            initial_window_width,
+            initial_window_height,
             app_name,
             null,
             null,
@@ -172,15 +184,17 @@ pub const Stone = struct {
         try self.createRenderPass();
         try self.createDescriptorSetLayout();
         try self.createGraphicsPipeline();
+        try self.createComputePipeline();
         try self.createFramebuffers();
 
         try self.createCommandPool();
         try self.createVertexBuffer();
         try self.createIndexBuffer();
         try self.createUniformBuffers();
+        try self.createStorageBuffers();
+        try self.createCommandBuffers();
         try self.createDescriptorPool();
         try self.createDescriptorSets();
-        try self.createCommandBuffers();
         try self.createSyncObjects();
     }
 
@@ -312,7 +326,7 @@ pub const Stone = struct {
 
         var unique_queue_families: std.AutoArrayHashMap(u32, void) = .init(self.allocator);
         defer unique_queue_families.deinit();
-        try unique_queue_families.put(indices.graphics_family.?, {});
+        try unique_queue_families.put(indices.graphics_compute_family.?, {});
         try unique_queue_families.put(indices.present_family.?, {});
 
         const queue_priority: f32 = 1.0;
@@ -352,8 +366,9 @@ pub const Stone = struct {
         vkd.* = DeviceWrapper.load(device, self.instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
         self.logical_device = LogicalDevice.init(device, vkd);
 
-        self.graphics_queue = .init(self.logical_device, indices.graphics_family.?);
+        self.graphics_queue = .init(self.logical_device, indices.graphics_compute_family.?);
         self.present_queue = .init(self.logical_device, indices.present_family.?);
+        self.compute_queue = .init(self.logical_device, indices.graphics_compute_family.?);
     }
 
     /// Creates a working swap chain based off of the window properties and chosen logical device.
@@ -509,19 +524,42 @@ pub const Stone = struct {
 
     /// Sets up the descriptor for the ubo in the vertex shader.
     fn createDescriptorSetLayout(self: *Stone) !void {
-        const ubo_layout_bindings = [_]vk.DescriptorSetLayoutBinding{.{
-            .binding = 0,
-            .descriptor_type = .uniform_buffer,
-            .descriptor_count = 1,
-            .stage_flags = .{
-                .vertex_bit = true,
+        const layout_bindings = [_]vk.DescriptorSetLayoutBinding{
+            .{
+                .binding = 0,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = 1,
+                .stage_flags = .{
+                    // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+                    // .compute_bit = true,
+                    .vertex_bit = true,
+                },
+                .p_immutable_samplers = null,
             },
-            .p_immutable_samplers = null,
-        }};
+            // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+            // .{
+            //     .binding = 1,
+            //     .descriptor_type = .storage_buffer,
+            //     .descriptor_count = 1,
+            //     .stage_flags = .{
+            //         .compute_bit = true,
+            //     },
+            //     .p_immutable_samplers = null,
+            // },
+            // .{
+            //     .binding = 2,
+            //     .descriptor_type = .storage_buffer,
+            //     .descriptor_count = 1,
+            //     .stage_flags = .{
+            //         .compute_bit = true,
+            //     },
+            //     .p_immutable_samplers = null,
+            // },
+        };
 
         const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
-            .binding_count = ubo_layout_bindings.len,
-            .p_bindings = &ubo_layout_bindings,
+            .binding_count = layout_bindings.len,
+            .p_bindings = &layout_bindings,
         };
 
         self.descriptor_set_layout = try self.logical_device.createDescriptorSetLayout(
@@ -533,6 +571,13 @@ pub const Stone = struct {
     /// Creates the graphics pipeline for the application.
     fn createGraphicsPipeline(self: *Stone) !void {
         self.graphics_pipeline = try .init(self);
+    }
+
+    /// Create the compute pipeline for the application.
+    fn createComputePipeline(self: *Stone) !void {
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (true) return;
+        self.compute_pipeline = try .init(self);
     }
 
     /// Creates the swapchain's framebuffers.
@@ -594,12 +639,26 @@ pub const Stone = struct {
         self.uniform_buffers = try .init(self);
     }
 
+    /// Allocates and sets the compute shaders storage buffers.
+    fn createStorageBuffers(self: *Stone) !void {
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (true) return;
+        self.storage_buffers = try .init(self);
+    }
+
     /// Creates the descriptor set for binding uniform buffers in the shader.
     fn createDescriptorPool(self: *Stone) !void {
-        const pool_sizes = [_]vk.DescriptorPoolSize{.{
-            .type = .uniform_buffer,
-            .descriptor_count = draw.max_frames_in_flight,
-        }};
+        const pool_sizes = [_]vk.DescriptorPoolSize{
+            .{
+                .type = .uniform_buffer,
+                .descriptor_count = draw.max_frames_in_flight,
+            },
+            // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+            // .{
+            //     .type = .storage_buffer,
+            //     .descriptor_count = draw.max_frames_in_flight * 2,
+            // },
+        };
 
         const pool_info: vk.DescriptorPoolCreateInfo = .{
             .pool_size_count = pool_sizes.len,
@@ -629,22 +688,62 @@ pub const Stone = struct {
         );
 
         inline for (0..draw.max_frames_in_flight) |i| {
-            const buffer_infos = [_]vk.DescriptorBufferInfo{.{
-                .buffer = self.uniform_buffers.buffers[i].buf,
+            const ubo_buffer_info = [_]vk.DescriptorBufferInfo{.{
+                .buffer = self.uniform_buffers.buffers[i].handle,
                 .offset = 0,
                 .range = @sizeOf(buffer.NativeUniformBufferObject),
             }};
 
-            const descriptor_writes = [_]vk.WriteDescriptorSet{.{
-                .dst_set = self.descriptor_sets[i],
-                .dst_binding = 0,
-                .dst_array_element = 0,
-                .descriptor_type = .uniform_buffer,
-                .descriptor_count = 1,
-                .p_buffer_info = &buffer_infos,
-                .p_image_info = @ptrCast(@alignCast(&undefined)),
-                .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
-            }};
+            // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+            if (false) {
+                const last_frame_buffer_info = [_]vk.DescriptorBufferInfo{.{
+                    .buffer = self.storage_buffers.buffers[(i + draw.max_frames_in_flight - 1) % draw.max_frames_in_flight].handle,
+                    .offset = 0,
+                    .range = @sizeOf(buffer.NativeParticle) * buffer.max_particles,
+                }};
+                _ = last_frame_buffer_info;
+
+                const current_frame_buffer_info = [_]vk.DescriptorBufferInfo{.{
+                    .buffer = self.storage_buffers.buffers[i].handle,
+                    .offset = 0,
+                    .range = @sizeOf(buffer.NativeParticle) * buffer.max_particles,
+                }};
+                _ = current_frame_buffer_info;
+            }
+
+            const descriptor_writes = [_]vk.WriteDescriptorSet{
+                .{
+                    .dst_set = self.descriptor_sets[i],
+                    .dst_binding = 0,
+                    .dst_array_element = 0,
+                    .descriptor_type = .uniform_buffer,
+                    .descriptor_count = ubo_buffer_info.len,
+                    .p_buffer_info = &ubo_buffer_info,
+                    .p_image_info = @ptrCast(@alignCast(&undefined)),
+                    .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
+                },
+                // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+                // .{
+                //     .dst_set = self.descriptor_sets[i],
+                //     .dst_binding = 1,
+                //     .dst_array_element = 0,
+                //     .descriptor_type = .storage_buffer,
+                //     .descriptor_count = last_frame_buffer_info.len,
+                //     .p_buffer_info = &last_frame_buffer_info,
+                //     .p_image_info = @ptrCast(@alignCast(&undefined)),
+                //     .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
+                // },
+                // .{
+                //     .dst_set = self.descriptor_sets[i],
+                //     .dst_binding = 2,
+                //     .dst_array_element = 0,
+                //     .descriptor_type = .storage_buffer,
+                //     .descriptor_count = current_frame_buffer_info.len,
+                //     .p_buffer_info = &current_frame_buffer_info,
+                //     .p_image_info = @ptrCast(@alignCast(&undefined)),
+                //     .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
+                // },
+            };
 
             self.logical_device.updateDescriptorSets(
                 descriptor_writes.len,
@@ -657,17 +756,7 @@ pub const Stone = struct {
 
     /// Creates the applications command buffer whose lifetime is tied to the command pool.
     fn createCommandBuffers(self: *Stone) !void {
-        self.command.buffers = try self.allocator.alloc(vk.CommandBuffer, draw.max_frames_in_flight);
-        const alloc_info: vk.CommandBufferAllocateInfo = .{
-            .command_pool = self.command.pool,
-            .level = .primary,
-            .command_buffer_count = @intCast(self.command.buffers.len),
-        };
-
-        try self.logical_device.allocateCommandBuffers(
-            &alloc_info,
-            self.command.buffers.ptr,
-        );
+        self.command = try .init(self);
     }
 
     /// Creates the synchronous objects required for Vulkan to work properly.

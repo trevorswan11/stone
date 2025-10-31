@@ -10,11 +10,13 @@ const launcher = @import("../../launcher.zig");
 const pipeline = @import("pipeline.zig");
 const draw = @import("draw.zig");
 
+const particle = @import("../sph/particle.zig");
+
 /// A generic buffer implementation.
 ///
 /// Simply determines and allocates memory based on initialization properties.
 pub const Buffer = struct {
-    buf: vk.Buffer,
+    handle: vk.Buffer,
     mem: vk.DeviceMemory,
 
     /// Creates a generic Buffer.
@@ -57,13 +59,13 @@ pub const Buffer = struct {
         // Now we can bind the buffer and proceed with mapping the actual data
         try logical_device.bindBufferMemory(buffer, mem, 0);
         return .{
-            .buf = buffer,
+            .handle = buffer,
             .mem = mem,
         };
     }
 
     pub fn deinit(self: *Buffer, logical_device: vk.DeviceProxy) void {
-        logical_device.destroyBuffer(self.buf, null);
+        logical_device.destroyBuffer(self.handle, null);
         logical_device.freeMemory(self.mem, null);
     }
 
@@ -103,8 +105,8 @@ pub const Buffer = struct {
         }};
         logical_device.cmdCopyBuffer(
             command_buffer,
-            source.buf,
-            dest.buf,
+            source.handle,
+            dest.handle,
             @intCast(copy_regions.len),
             &copy_regions,
         );
@@ -186,7 +188,7 @@ pub const VertexBuffer = struct {
 
         return .{
             .buffer = .{
-                .buf = vertex_buffer.buf,
+                .handle = vertex_buffer.handle,
                 .mem = vertex_buffer.mem,
             },
         };
@@ -257,7 +259,7 @@ pub const IndexBuffer = struct {
 
         return .{
             .buffer = .{
-                .buf = index_buffer.buf,
+                .handle = index_buffer.handle,
                 .mem = index_buffer.mem,
             },
         };
@@ -270,12 +272,14 @@ pub const IndexBuffer = struct {
 
 pub const NativeMat4 = [4]pipeline.Mat4.VecType.VecType;
 pub const NativeUniformBufferObject = struct {
+    dt: f32 align(16),
     model: NativeMat4 align(16),
     view: NativeMat4 align(16),
     proj: NativeMat4 align(16),
 
     pub fn init(op: OpUniformBufferObject) NativeUniformBufferObject {
         return .{
+            .dt = op.dt,
             .model = opToNative(op.model),
             .view = opToNative(op.view),
             .proj = opToNative(op.proj),
@@ -293,6 +297,7 @@ pub const NativeUniformBufferObject = struct {
 
 pub const OpMat4 = pipeline.Mat4;
 pub const OpUniformBufferObject = struct {
+    dt: f32 = 0.0,
     model: OpMat4 = .splat(0.0),
     view: OpMat4 = .splat(0.0),
     proj: OpMat4 = .splat(0.0),
@@ -343,6 +348,100 @@ pub const UniformBuffers = struct {
 
         for (self.buffers) |*buf| {
             logical_device.unmapMemory(buf.mem);
+            buf.deinit(logical_device);
+        }
+    }
+};
+
+pub const StorageBuffers = struct {
+    buffers: []Buffer,
+
+    pub fn init(stone: *launcher.Stone) !StorageBuffers {
+        const buffer_size = @sizeOf(particle.NativeParticle) * particle.max_particles;
+
+        var self: StorageBuffers = undefined;
+        self.buffers = try stone.allocator.alloc(Buffer, draw.max_frames_in_flight);
+
+        // Initialize particles with random initial positions
+        const op_particles = try particle.OpParticle.spawn(
+            stone.allocator,
+            @bitCast(stone.timestep.start_time_us),
+            particle.max_particles,
+        );
+        defer stone.allocator.free(op_particles);
+
+        const native_particles = try stone.allocator.alloc(
+            particle.NativeParticle,
+            op_particles.len,
+        );
+        defer stone.allocator.free(native_particles);
+        for (native_particles, op_particles) |*n_particle, o_particle| {
+            n_particle.* = .init(o_particle);
+        }
+
+        // Create a temporary buffer only visible to the host
+        var staging_buffer: Buffer = try .init(
+            stone.logical_device,
+            stone.instance,
+            stone.physical_device.device,
+            buffer_size,
+            .{
+                .transfer_src_bit = true,
+            },
+            .{
+                .host_visible_bit = true,
+                .host_coherent_bit = true,
+            },
+        );
+        defer staging_buffer.deinit(stone.logical_device);
+
+        // Map and copy the memory from the CPU to GPU
+        const data = try stone.logical_device.mapMemory(
+            staging_buffer.mem,
+            0,
+            buffer_size,
+            .{},
+        ) orelse return error.MemoryMapFailed;
+        defer stone.logical_device.unmapMemory(staging_buffer.mem);
+
+        const casted: [*]particle.NativeParticle = @ptrCast(@alignCast(data));
+        @memcpy(casted, native_particles);
+
+        // Initialize storage objects by copying the staging buffer's mem
+        for (self.buffers) |*buf| {
+            buf.* = try .init(
+                stone.logical_device,
+                stone.instance,
+                stone.physical_device.device,
+                buffer_size,
+                .{
+                    .storage_buffer_bit = true,
+                    .vertex_buffer_bit = true,
+                    .transfer_dst_bit = true,
+                },
+                .{
+                    .device_local_bit = true,
+                },
+            );
+
+            // Copy thr buffer from the host to the device
+            try Buffer.copy(
+                stone.logical_device,
+                stone.command.pool,
+                stone.graphics_queue.handle,
+                staging_buffer,
+                buf.*,
+                buffer_size,
+            );
+        }
+
+        return self;
+    }
+
+    pub fn deinit(self: *StorageBuffers, allocator: std.mem.Allocator, logical_device: vk.DeviceProxy) void {
+        defer allocator.free(self.buffers);
+
+        for (self.buffers) |*buf| {
             buf.deinit(logical_device);
         }
     }

@@ -3,6 +3,7 @@ const std = @import("std");
 const core = @import("core");
 pub const Vec2 = core.Vector(f32, 2);
 pub const Vec3 = core.Vector(f32, 3);
+pub const Vec4 = core.Vector(f32, 4);
 pub const Mat4 = core.Matrix(f32, 4, 4);
 
 const vulkan = @import("vulkan.zig");
@@ -14,15 +15,18 @@ const launcher = @import("../../launcher.zig");
 
 const vertex_shader_bytes align(@alignOf(u32)) = @embedFile("vertex_shader").*;
 const fragment_shader_bytes align(@alignOf(u32)) = @embedFile("fragment_shader").*;
+const compute_shader_bytes align(@alignOf(u32)) = @embedFile("compute_shader").*;
 
 const ShaderModuleType = enum {
     vertex,
     fragment,
+    compute,
 };
 
 const ShaderModule = struct { [*]const u32, usize };
 const vertex_shader: ShaderModule = .{ @ptrCast(&vertex_shader_bytes), vertex_shader_bytes.len };
 const fragment_shader: ShaderModule = .{ @ptrCast(&fragment_shader_bytes), fragment_shader_bytes.len };
+const compute_shader: ShaderModule = .{ @ptrCast(&compute_shader_bytes), compute_shader_bytes.len };
 
 /// Creates a shader module from the given bytes.
 ///
@@ -34,6 +38,7 @@ pub fn createShaderModule(
     const module, const len = comptime switch (module_type) {
         .vertex => vertex_shader,
         .fragment => fragment_shader,
+        .compute => compute_shader,
     };
 
     const shader_create_info: vk.ShaderModuleCreateInfo = .{
@@ -61,6 +66,7 @@ pub const Graphics = struct {
     pub fn init(stone: *launcher.Stone) !Graphics {
         var self: Graphics = undefined;
 
+        // Create the vertex and fragment shader modules
         const vert = try createShaderModule(stone, .vertex);
         defer stone.logical_device.destroyShaderModule(vert, null);
 
@@ -88,6 +94,7 @@ pub const Graphics = struct {
             frag_stage_info,
         };
 
+        // Create all graphics pipeline related bindings, attributes, and assemblies
         const binding = Vertex.bindingDescription();
         const attributes = Vertex.attributeDescriptions();
         const vertex_input_info: vk.PipelineVertexInputStateCreateInfo = .{
@@ -185,7 +192,7 @@ pub const Graphics = struct {
         );
 
         const pipeline_info = [_]vk.GraphicsPipelineCreateInfo{.{
-            .stage_count = 2,
+            .stage_count = shader_stages.len,
             .p_stages = &shader_stages,
             .p_vertex_input_state = &vertex_input_info,
             .p_input_assembly_state = &input_assembly,
@@ -214,6 +221,59 @@ pub const Graphics = struct {
     }
 
     pub fn deinit(self: *Graphics, logical_device: *vk.DeviceProxy) void {
+        logical_device.destroyPipeline(self.pipeline, null);
+        logical_device.destroyPipelineLayout(self.layout, null);
+    }
+};
+
+pub const Compute = struct {
+    pipeline: vk.Pipeline = undefined,
+    layout: vk.PipelineLayout = undefined,
+
+    pub fn init(stone: *launcher.Stone) !Compute {
+        var self: Compute = undefined;
+
+        const compute = try createShaderModule(stone, .compute);
+        defer stone.logical_device.destroyShaderModule(compute, null);
+
+        const compute_stage_info: vk.PipelineShaderStageCreateInfo = .{
+            .stage = .{
+                .compute_bit = true,
+            },
+            .module = compute,
+            .p_name = "main",
+        };
+
+        const pipeline_layout_info: vk.PipelineLayoutCreateInfo = .{
+            .set_layout_count = 1,
+            .p_set_layouts = @ptrCast(&stone.descriptor_set_layout),
+            .push_constant_range_count = 0,
+            .p_push_constant_ranges = null,
+        };
+
+        self.layout = try stone.logical_device.createPipelineLayout(
+            &pipeline_layout_info,
+            null,
+        );
+
+        const pipeline_info: vk.ComputePipelineCreateInfo = .{
+            .layout = self.layout,
+            .stage = compute_stage_info,
+            .base_pipeline_index = 0,
+        };
+
+        const result = try stone.logical_device.createComputePipelines(
+            .null_handle,
+            1,
+            @ptrCast(&pipeline_info),
+            null,
+            @ptrCast(&self.pipeline),
+        );
+
+        return if (result != .success) error.PipelineCreateFailed else self;
+    }
+
+    pub fn deinit(self: *Compute, logical_device: *vk.DeviceProxy) void {
         logical_device.destroyPipeline(self.pipeline, null);
         logical_device.destroyPipelineLayout(self.layout, null);
     }

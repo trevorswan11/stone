@@ -297,6 +297,7 @@ pub fn lookAt(
 }
 
 /// Creates the perspective matrix from the scene parameters.
+/// You do not need to invert [1][1] in the result.
 ///
 /// Implementation from glm: https://github.com/g-truc/glm
 ///
@@ -318,7 +319,7 @@ pub fn perspective(
     var out: Mat = .splat(0.0);
 
     out.mat[0].vec[0] = 1.0 / (aspect * tan_half_fovy);
-    out.mat[1].vec[1] = 1.0 / tan_half_fovy;
+    out.mat[1].vec[1] = -1.0 / tan_half_fovy;
     out.mat[2].vec[2] = -(z_far + z_near) / (z_far - z_near);
     out.mat[3].vec[2] = -1.0;
     out.mat[2].vec[3] = -(2.0 * z_far * z_near) / (z_far - z_near);
@@ -577,7 +578,7 @@ test "perspective" {
 
     const tan_half_fovy = @tan(fovy / 2.0);
     const val_00 = 1.0 / (aspect * tan_half_fovy);
-    const val_11 = 1.0 / tan_half_fovy;
+    const val_11 = -1.0 / tan_half_fovy;
 
     const expected_data = [_]T{
         val_00, 0.0,    0.0,                   0.0,

@@ -273,11 +273,11 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
     const width: f32 = @floatFromInt(stone.swapchain.extent.width);
     const height: f32 = @floatFromInt(stone.swapchain.extent.height);
 
-    var ubo: buffer_.OpUniformBufferObject = .{
+    const ubo: buffer_.OpUniformBufferObject = .{
         .model = core.mat.rotate(
             f32,
             comptime .identity(1.0),
-            dt * std.math.degreesToRadians(90.0),
+            @rem(dt * std.math.degreesToRadians(90.0), 360.0),
             .init(.{ 0.0, 0.0, 1.0 }),
         ),
         .view = core.mat.lookAt(
@@ -295,7 +295,6 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
             10.0,
         ),
     };
-    ubo.proj.mat[1].vec[1] *= -1;
 
     const mem = stone.uniform_buffers.mapped[current_frame];
     const casted: *buffer_.NativeUniformBufferObject = @ptrCast(@alignCast(mem));

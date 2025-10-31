@@ -36,24 +36,31 @@ pub const Command = struct {
         );
 
         // Compute pass
-        self.compute_buffers = try stone.allocator.alloc(vk.CommandBuffer, max_frames_in_flight);
-        const graphics_alloc_info: vk.CommandBufferAllocateInfo = .{
-            .command_pool = stone.command.pool,
-            .level = .primary,
-            .command_buffer_count = @intCast(self.compute_buffers.len),
-        };
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (false) {
+            self.compute_buffers = try stone.allocator.alloc(vk.CommandBuffer, max_frames_in_flight);
+            const graphics_alloc_info: vk.CommandBufferAllocateInfo = .{
+                .command_pool = stone.command.pool,
+                .level = .primary,
+                .command_buffer_count = @intCast(self.compute_buffers.len),
+            };
 
-        try stone.logical_device.allocateCommandBuffers(
-            &graphics_alloc_info,
-            self.compute_buffers.ptr,
-        );
+            try stone.logical_device.allocateCommandBuffers(
+                &graphics_alloc_info,
+                self.compute_buffers.ptr,
+            );
+        }
 
         return self;
     }
 
     pub fn deinit(self: *Command, allocator: std.mem.Allocator) void {
         allocator.free(self.buffers);
-        allocator.free(self.compute_buffers);
+
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (false) {
+            allocator.free(self.compute_buffers);
+        }
     }
 
     /// Writes the commands wanted to execute to the command buffer.
@@ -226,49 +233,51 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
     const current_frame = stone.syncs.current_frame;
 
     // Compute Submission
-    const compute_command_buffers = [_]vk.CommandBuffer{
-        stone.command.compute_buffers[current_frame],
-    };
+    // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+    if (false) {
+        const compute_command_buffers = [_]vk.CommandBuffer{
+            stone.command.compute_buffers[current_frame],
+        };
 
-    const compute_signal_semaphores = [_]vk.Semaphore{
-        stone.syncs.compute_finished_semaphores[current_frame],
-    };
+        const compute_signal_semaphores = [_]vk.Semaphore{
+            stone.syncs.compute_finished_semaphores[current_frame],
+        };
 
-    const compute_fences = [_]vk.Fence{
-        stone.syncs.compute_in_flight_fences[current_frame],
-    };
+        const compute_fences = [_]vk.Fence{
+            stone.syncs.compute_in_flight_fences[current_frame],
+        };
 
-    _ = try stone.logical_device.waitForFences(
-        compute_fences.len,
-        &compute_fences,
-        .true,
-        std.math.maxInt(u64),
-    );
+        _ = try stone.logical_device.waitForFences(
+            compute_fences.len,
+            &compute_fences,
+            .true,
+            std.math.maxInt(u64),
+        );
 
-    updateUniformBuffer(stone, current_frame);
+        try stone.logical_device.resetFences(compute_fences.len, &compute_fences);
 
-    try stone.logical_device.resetFences(compute_fences.len, &compute_fences);
+        try stone.logical_device.resetCommandBuffer(stone.command.compute_buffers[current_frame], .{});
+        try Command.recordComputeCommandBuffer(
+            stone,
+            stone.command.compute_buffers[current_frame],
+            current_frame,
+        );
 
-    try stone.logical_device.resetCommandBuffer(stone.command.compute_buffers[current_frame], .{});
-    try Command.recordComputeCommandBuffer(
-        stone,
-        stone.command.compute_buffers[current_frame],
-        current_frame,
-    );
+        const compute_submit_info = [_]vk.SubmitInfo{.{
+            .command_buffer_count = @intCast(compute_command_buffers.len),
+            .p_command_buffers = &compute_command_buffers,
+            .signal_semaphore_count = @intCast(compute_signal_semaphores.len),
+            .p_signal_semaphores = &compute_signal_semaphores,
+        }};
 
-    const compute_submit_info = [_]vk.SubmitInfo{.{
-        .command_buffer_count = @intCast(compute_command_buffers.len),
-        .p_command_buffers = &compute_command_buffers,
-        .signal_semaphore_count = @intCast(compute_signal_semaphores.len),
-        .p_signal_semaphores = &compute_signal_semaphores,
-    }};
+        try stone.logical_device.queueSubmit(
+            stone.compute_queue.handle,
+            @intCast(compute_submit_info.len),
+            &compute_submit_info,
+            stone.syncs.compute_in_flight_fences[current_frame],
+        );
+    }
 
-    try stone.logical_device.queueSubmit(
-        stone.compute_queue.handle,
-        @intCast(compute_submit_info.len),
-        &compute_submit_info,
-        stone.syncs.compute_in_flight_fences[current_frame],
-    );
 
     // Graphics Submission
     const graphics_command_buffers = [_]vk.CommandBuffer{
@@ -309,6 +318,8 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
         },
         else => return error.SwapchainPresentFailed,
     };
+
+    updateUniformBuffer(stone, current_frame);
 
     try stone.logical_device.resetFences(graphics_fences.len, &graphics_fences);
 

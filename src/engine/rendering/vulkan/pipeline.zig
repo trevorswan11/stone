@@ -233,6 +233,11 @@ pub const Compute = struct {
     pub fn init(stone: *launcher.Stone) !Compute {
         var self: Compute = undefined;
 
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (true) {
+            return self;
+        }
+
         const compute = try createShaderModule(stone, .compute);
         defer stone.logical_device.destroyShaderModule(compute, null);
 
@@ -274,6 +279,11 @@ pub const Compute = struct {
     }
 
     pub fn deinit(self: *Compute, logical_device: *vk.DeviceProxy) void {
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (true) {
+            return;
+        }
+
         logical_device.destroyPipeline(self.pipeline, null);
         logical_device.destroyPipelineLayout(self.layout, null);
     }

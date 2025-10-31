@@ -104,13 +104,19 @@ pub const Stone = struct {
         self.vertex_buffer.deinit(self.logical_device);
         self.index_buffer.deinit(self.logical_device);
         self.uniform_buffers.deinit(self.allocator, self.logical_device);
-        self.storage_buffers.deinit(self.allocator, self.logical_device);
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (false) {
+            self.storage_buffers.deinit(self.allocator, self.logical_device);
+        }
 
         self.syncs.deinit(self.allocator, &self.logical_device);
         self.logical_device.destroyCommandPool(self.command.pool, null);
 
         self.graphics_pipeline.deinit(&self.logical_device);
-        self.compute_pipeline.deinit(&self.logical_device);
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (false) {
+            self.compute_pipeline.deinit(&self.logical_device);
+        }
         self.logical_device.destroyRenderPass(self.render_pass, null);
 
         self.swapchain.deinit(self);
@@ -186,9 +192,9 @@ pub const Stone = struct {
         try self.createIndexBuffer();
         try self.createUniformBuffers();
         try self.createStorageBuffers();
+        try self.createCommandBuffers();
         try self.createDescriptorPool();
         try self.createDescriptorSets();
-        try self.createCommandBuffers();
         try self.createSyncObjects();
     }
 
@@ -524,29 +530,31 @@ pub const Stone = struct {
                 .descriptor_type = .uniform_buffer,
                 .descriptor_count = 1,
                 .stage_flags = .{
-                    .compute_bit = true,
+                    // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+                    // .compute_bit = true,
                     .vertex_bit = true,
                 },
                 .p_immutable_samplers = null,
             },
-            .{
-                .binding = 1,
-                .descriptor_type = .storage_buffer,
-                .descriptor_count = 1,
-                .stage_flags = .{
-                    .compute_bit = true,
-                },
-                .p_immutable_samplers = null,
-            },
-            .{
-                .binding = 2,
-                .descriptor_type = .storage_buffer,
-                .descriptor_count = 1,
-                .stage_flags = .{
-                    .compute_bit = true,
-                },
-                .p_immutable_samplers = null,
-            },
+            // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+            // .{
+            //     .binding = 1,
+            //     .descriptor_type = .storage_buffer,
+            //     .descriptor_count = 1,
+            //     .stage_flags = .{
+            //         .compute_bit = true,
+            //     },
+            //     .p_immutable_samplers = null,
+            // },
+            // .{
+            //     .binding = 2,
+            //     .descriptor_type = .storage_buffer,
+            //     .descriptor_count = 1,
+            //     .stage_flags = .{
+            //         .compute_bit = true,
+            //     },
+            //     .p_immutable_samplers = null,
+            // },
         };
 
         const layout_info: vk.DescriptorSetLayoutCreateInfo = .{
@@ -631,6 +639,8 @@ pub const Stone = struct {
 
     /// Allocates and sets the compute shaders storage buffers.
     fn createStorageBuffers(self: *Stone) !void {
+        // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+        if (true) return;
         self.storage_buffers = try .init(self);
     }
 
@@ -641,10 +651,11 @@ pub const Stone = struct {
                 .type = .uniform_buffer,
                 .descriptor_count = draw.max_frames_in_flight,
             },
-            .{
-                .type = .storage_buffer,
-                .descriptor_count = draw.max_frames_in_flight * 2,
-            },
+            // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+            // .{
+            //     .type = .storage_buffer,
+            //     .descriptor_count = draw.max_frames_in_flight * 2,
+            // },
         };
 
         const pool_info: vk.DescriptorPoolCreateInfo = .{
@@ -681,17 +692,22 @@ pub const Stone = struct {
                 .range = @sizeOf(buffer.NativeUniformBufferObject),
             }};
 
-            const last_frame_buffer_info = [_]vk.DescriptorBufferInfo{.{
-                .buffer = self.storage_buffers.buffers[(i + draw.max_frames_in_flight - 1) % draw.max_frames_in_flight].handle,
-                .offset = 0,
-                .range = @sizeOf(buffer.NativeParticle) * buffer.max_particles,
-            }};
+            // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+            if (false) {
+                const last_frame_buffer_info = [_]vk.DescriptorBufferInfo{.{
+                    .buffer = self.storage_buffers.buffers[(i + draw.max_frames_in_flight - 1) % draw.max_frames_in_flight].handle,
+                    .offset = 0,
+                    .range = @sizeOf(buffer.NativeParticle) * buffer.max_particles,
+                }};
+                _ = last_frame_buffer_info;
 
-            const current_fram_buffer_info = [_]vk.DescriptorBufferInfo{.{
-                .buffer = self.storage_buffers.buffers[i].handle,
-                .offset = 0,
-                .range = @sizeOf(buffer.NativeParticle) * buffer.max_particles,
-            }};
+                const current_frame_buffer_info = [_]vk.DescriptorBufferInfo{.{
+                    .buffer = self.storage_buffers.buffers[i].handle,
+                    .offset = 0,
+                    .range = @sizeOf(buffer.NativeParticle) * buffer.max_particles,
+                }};
+                _ = current_frame_buffer_info;
+            }
 
             const descriptor_writes = [_]vk.WriteDescriptorSet{
                 .{
@@ -704,26 +720,27 @@ pub const Stone = struct {
                     .p_image_info = @ptrCast(@alignCast(&undefined)),
                     .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
                 },
-                .{
-                    .dst_set = self.descriptor_sets[i],
-                    .dst_binding = 1,
-                    .dst_array_element = 0,
-                    .descriptor_type = .storage_buffer,
-                    .descriptor_count = last_frame_buffer_info.len,
-                    .p_buffer_info = &last_frame_buffer_info,
-                    .p_image_info = @ptrCast(@alignCast(&undefined)),
-                    .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
-                },
-                .{
-                    .dst_set = self.descriptor_sets[i],
-                    .dst_binding = 2,
-                    .dst_array_element = 0,
-                    .descriptor_type = .storage_buffer,
-                    .descriptor_count = current_fram_buffer_info.len,
-                    .p_buffer_info = &current_fram_buffer_info,
-                    .p_image_info = @ptrCast(@alignCast(&undefined)),
-                    .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
-                },
+                // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
+                // .{
+                //     .dst_set = self.descriptor_sets[i],
+                //     .dst_binding = 1,
+                //     .dst_array_element = 0,
+                //     .descriptor_type = .storage_buffer,
+                //     .descriptor_count = last_frame_buffer_info.len,
+                //     .p_buffer_info = &last_frame_buffer_info,
+                //     .p_image_info = @ptrCast(@alignCast(&undefined)),
+                //     .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
+                // },
+                // .{
+                //     .dst_set = self.descriptor_sets[i],
+                //     .dst_binding = 2,
+                //     .dst_array_element = 0,
+                //     .descriptor_type = .storage_buffer,
+                //     .descriptor_count = current_frame_buffer_info.len,
+                //     .p_buffer_info = &current_frame_buffer_info,
+                //     .p_image_info = @ptrCast(@alignCast(&undefined)),
+                //     .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
+                // },
             };
 
             self.logical_device.updateDescriptorSets(

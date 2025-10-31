@@ -10,8 +10,11 @@ pub const points = @import("neighborhood/points.zig");
 pub const search = @import("neighborhood/search.zig");
 pub const zorder = @import("neighborhood/zorder.zig");
 
-pub const Vector = @import("math/vec.zig").Vector;
-pub const Matrix = @import("math/mat.zig").Matrix;
+pub const vec = @import("math/vec.zig");
+pub const mat = @import("math/mat.zig");
+
+pub const Vector = vec.Vector;
+pub const Matrix = mat.Matrix;
 
 test {
     _ = @import("math/Timestep.zig");

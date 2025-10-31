@@ -177,6 +177,7 @@ pub fn rotate(
     const temp = axis.scale(1.0 - cos);
 
     var rotated: Mat = .splat(0.0);
+
     rotated.mat[0].vec[0] = cos + temp.vec[0] * axis.vec[0];
     rotated.mat[0].vec[1] = temp.vec[0] * axis.vec[1] + sin * axis.vec[2];
     rotated.mat[0].vec[2] = temp.vec[0] * axis.vec[2] - sin * axis.vec[1];
@@ -189,22 +190,8 @@ pub fn rotate(
     rotated.mat[2].vec[1] = temp.vec[2] * axis.vec[1] - sin * axis.vec[0];
     rotated.mat[2].vec[2] = cos + temp.vec[2] * axis.vec[2];
 
-    var out: Mat = .splat(0.0);
-
-    // zig fmt: off
-    out.mat[0] = .spawn(mat.mat[0].scale(rotated.mat[0].vec[0]).vec
-        + mat.mat[1].scale(rotated.mat[0].vec[1]).vec
-        + mat.mat[2].scale(rotated.mat[0].vec[2]).vec);
-    out.mat[1] = .spawn(mat.mat[0].scale(rotated.mat[1].vec[0]).vec
-        + mat.mat[1].scale(rotated.mat[1].vec[1]).vec
-        + mat.mat[2].scale(rotated.mat[1].vec[2]).vec);
-    out.mat[2] = .spawn(mat.mat[0].scale(rotated.mat[2].vec[0]).vec
-        + mat.mat[1].scale(rotated.mat[2].vec[1]).vec
-        + mat.mat[2].scale(rotated.mat[2].vec[2]).vec);
-    // zig fmt: on
-
-    out.mat[3] = mat.mat[3];
-    return out;
+    rotated.mat[3].vec[3] = 1.0;
+    return mat.mul(4, rotated);
 }
 
 /// Computes the LHS view matrix.
@@ -229,20 +216,20 @@ fn lookAtLH(
     var out: Mat = .identity(1.0);
 
     out.mat[0].vec[0] = s.vec[0];
-    out.mat[1].vec[0] = s.vec[1];
-    out.mat[2].vec[0] = s.vec[2];
+    out.mat[0].vec[1] = s.vec[1];
+    out.mat[0].vec[2] = s.vec[2];
 
-    out.mat[0].vec[1] = u.vec[0];
+    out.mat[1].vec[0] = u.vec[0];
     out.mat[1].vec[1] = u.vec[1];
-    out.mat[2].vec[1] = u.vec[2];
+    out.mat[1].vec[2] = u.vec[2];
 
-    out.mat[0].vec[2] = f.vec[0];
-    out.mat[1].vec[2] = f.vec[1];
+    out.mat[2].vec[0] = f.vec[0];
+    out.mat[2].vec[1] = f.vec[1];
     out.mat[2].vec[2] = f.vec[2];
 
-    out.mat[3].vec[0] = -s.dot(eye);
-    out.mat[3].vec[1] = -u.dot(eye);
-    out.mat[3].vec[2] = -f.dot(eye);
+    out.mat[0].vec[3] = -s.dot(eye);
+    out.mat[1].vec[3] = -u.dot(eye);
+    out.mat[2].vec[3] = -f.dot(eye);
 
     return out;
 }
@@ -269,20 +256,20 @@ fn lookAtRH(
     var out: Mat = .identity(1.0);
 
     out.mat[0].vec[0] = s.vec[0];
-    out.mat[1].vec[0] = s.vec[1];
-    out.mat[2].vec[0] = s.vec[2];
+    out.mat[0].vec[1] = s.vec[1];
+    out.mat[0].vec[2] = s.vec[2];
 
-    out.mat[0].vec[1] = u.vec[0];
+    out.mat[1].vec[0] = u.vec[0];
     out.mat[1].vec[1] = u.vec[1];
-    out.mat[2].vec[1] = u.vec[2];
+    out.mat[1].vec[2] = u.vec[2];
 
-    out.mat[0].vec[2] = -f.vec[0];
-    out.mat[1].vec[2] = -f.vec[1];
+    out.mat[2].vec[0] = -f.vec[0];
+    out.mat[2].vec[1] = -f.vec[1];
     out.mat[2].vec[2] = -f.vec[2];
 
-    out.mat[3].vec[0] = -s.dot(eye);
-    out.mat[3].vec[1] = -u.dot(eye);
-    out.mat[3].vec[2] = f.dot(eye);
+    out.mat[0].vec[3] = -s.dot(eye);
+    out.mat[1].vec[3] = -u.dot(eye);
+    out.mat[2].vec[3] = f.dot(eye);
 
     return out;
 }
@@ -311,8 +298,6 @@ pub fn lookAt(
 
 /// Creates the perspective matrix from the scene parameters.
 ///
-/// The returned perspective matrix uses the intuitive y-coordinate (opposite to OpenGL).
-///
 /// Implementation from glm: https://github.com/g-truc/glm
 ///
 /// T must be a float.
@@ -333,10 +318,10 @@ pub fn perspective(
     var out: Mat = .splat(0.0);
 
     out.mat[0].vec[0] = 1.0 / (aspect * tan_half_fovy);
-    out.mat[1].vec[1] = -1.0 / tan_half_fovy;
+    out.mat[1].vec[1] = 1.0 / tan_half_fovy;
     out.mat[2].vec[2] = -(z_far + z_near) / (z_far - z_near);
-    out.mat[2].vec[3] = -1.0;
-    out.mat[3].vec[2] = -(2.0 * z_far * z_near) / (z_far - z_near);
+    out.mat[3].vec[2] = -1.0;
+    out.mat[2].vec[3] = -(2.0 * z_far * z_near) / (z_far - z_near);
 
     return out;
 }
@@ -502,12 +487,6 @@ test "Matrix-matrix multiplication" {
     const m2 = m23.transpose();
     const out_m = m1.mul(2, m2);
 
-    // Manually calculate expected result
-    // out[0][0] = row0(m1) * col0(m2) = (1,2,3) * (1,2,3) = 1*1 + 2*2 + 3*3 = 1 + 4 + 9 = 14
-    // out[0][1] = row0(m1) * col1(m2) = (1,2,3) * (4,5,6) = 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
-    // out[1][0] = row1(m1) * col0(m2) = (4,5,6) * (1,2,3) = 4*1 + 5*2 + 6*3 = 4 + 10 + 18 = 32
-    // out[1][1] = row1(m1) * col1(m2) = (4,5,6) * (4,5,6) = 4*4 + 5*5 + 6*6 = 16 + 25 + 36 = 77
-
     const expected_out_m_data = [_]f32{ 14.0, 32.0, 32.0, 77.0 };
     const expected_out_m: Mat2 = .init(expected_out_m_data);
 
@@ -547,7 +526,6 @@ test "rotate function" {
 }
 
 test "lookAt and its variants" {
-    if (true) return error.SkipZigTest;
     const T = f32;
     const Mat4 = Matrix(T, 4, 4);
     const Vec3 = Vector(T, 3);
@@ -561,8 +539,8 @@ test "lookAt and its variants" {
     const expected_lh_data = [_]T{
         -1, 0, 0,  0,
         0,  1, 0,  0,
-        0,  0, -1, 0,
-        0,  0, 1,  1,
+        0,  0, -1, 1,
+        0,  0, 0,  1,
     };
     const expected_lh = Mat4.init(expected_lh_data);
     for (0..expected_lh.dims.numel) |i| {
@@ -572,10 +550,10 @@ test "lookAt and its variants" {
     // RH calculation
     const m_rh = lookAt(T, eye, center, up, .rh);
     const expected_rh_data = [_]T{
-        1, 0, 1,  0,
-        0, 1, 0,  0,
-        0, 0, 1,  0,
-        0, 0, -1, 1,
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, -1,
+        0, 0, 0, 1,
     };
     const expected_rh = Mat4.init(expected_rh_data);
     for (0..expected_rh.dims.numel) |i| {
@@ -597,11 +575,15 @@ test "perspective" {
     const f_plus_n = zfar + znear;
     const two_f_n = 2.0 * zfar * znear;
 
+    const tan_half_fovy = @tan(fovy / 2.0);
+    const val_00 = 1.0 / (aspect * tan_half_fovy);
+    const val_11 = 1.0 / tan_half_fovy;
+
     const expected_data = [_]T{
-        1.0, 0.0,  0.0,                   0.0,
-        0.0, -1.0, 0.0,                   0.0,
-        0.0, 0.0,  -f_plus_n / f_minus_n, -1.0,
-        0.0, 0.0,  -two_f_n / f_minus_n,  0.0,
+        val_00, 0.0,    0.0,                   0.0,
+        0.0,    val_11, 0.0,                   0.0,
+        0.0,    0.0,    -f_plus_n / f_minus_n, -two_f_n / f_minus_n,
+        0.0,    0.0,    -1.0,                  0.0,
     };
     const expected_persp: Mat4 = .init(expected_data);
     for (0..expected_persp.dims.numel) |i| {

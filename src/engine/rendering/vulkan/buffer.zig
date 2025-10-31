@@ -275,16 +275,24 @@ pub const IndexBuffer = struct {
 
 pub const NativeMat4 = [4]pipeline.Mat4.VecType.VecType;
 pub const NativeUniformBufferObject = struct {
-    model: NativeMat4,
-    view: NativeMat4,
-    proj: NativeMat4,
+    model: NativeMat4 align(16),
+    view: NativeMat4 align(16),
+    proj: NativeMat4 align(16),
 
     pub fn init(op: OpUniformBufferObject) NativeUniformBufferObject {
         return .{
-            .model = op.model.mat,
-            .view = op.view.mat,
-            .proj = op.proj.mat,
+            .model = opToNative(op.model),
+            .view = opToNative(op.view),
+            .proj = opToNative(op.proj),
         };
+    }
+
+    fn opToNative(op: OpMat4) NativeMat4 {
+        var out: NativeMat4 = undefined;
+        for (op.mat, &out) |v, *r| {
+            r.* = v.vec;
+        }
+        return out;
     }
 };
 

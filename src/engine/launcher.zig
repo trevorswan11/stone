@@ -57,8 +57,11 @@ pub const Stone = struct {
     framebuffer_resized: bool = false,
 
     render_pass: vk.RenderPass = undefined,
-    descriptor_set_layout: vk.DescriptorSetLayout = undefined,
     graphics_pipeline: pipeline.Graphics = undefined,
+
+    descriptor_pool: vk.DescriptorPool = undefined,
+    descriptor_set_layout: vk.DescriptorSetLayout = undefined,
+    descriptor_sets: []vk.DescriptorSet = undefined,
 
     vertex_buffer: buffer.VertexBuffer = undefined,
     index_buffer: buffer.IndexBuffer = undefined,
@@ -73,12 +76,12 @@ pub const Stone = struct {
         var self: Stone = .{
             .allocator = allocator,
         };
-        defer self.timestep = .init();
 
         try self.initWindow();
         self.vkb = .load(glfw.getInstanceProcAddress);
         try self.initVulkan();
 
+        self.timestep = .init();
         return self;
     }
 
@@ -88,6 +91,7 @@ pub const Stone = struct {
 
             self.swapchain_lists.deinit(self.allocator);
             self.command.deinit(self.allocator);
+            self.allocator.free(self.descriptor_sets);
 
             self.allocator.destroy(self.logical_device.wrapper);
             self.allocator.destroy(self.instance.wrapper);
@@ -105,6 +109,7 @@ pub const Stone = struct {
         self.logical_device.destroyRenderPass(self.render_pass, null);
 
         self.swapchain.deinit(self);
+        self.logical_device.destroyDescriptorPool(self.descriptor_pool, null);
         self.logical_device.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
         self.logical_device.destroyDevice(null);
         self.instance.destroySurfaceKHR(self.surface, null);
@@ -173,6 +178,8 @@ pub const Stone = struct {
         try self.createVertexBuffer();
         try self.createIndexBuffer();
         try self.createUniformBuffers();
+        try self.createDescriptorPool();
+        try self.createDescriptorSets();
         try self.createCommandBuffers();
         try self.createSyncObjects();
     }
@@ -474,13 +481,30 @@ pub const Stone = struct {
             .p_color_attachments = &color_attachment_ref,
         }};
 
+        const subpass_dependencies = [_]vk.SubpassDependency{.{
+            .src_subpass = ~@as(u32, 0),
+            .dst_subpass = 0,
+            .src_stage_mask = .{
+                .color_attachment_output_bit = true,
+            },
+            .src_access_mask = .{},
+            .dst_stage_mask = .{
+                .color_attachment_output_bit = true,
+            },
+            .dst_access_mask = .{
+                .color_attachment_write_bit = true,
+            },
+        }};
+
         // Creates the render pass object for use in the remainder of the program
         const render_pass_info: vk.RenderPassCreateInfo = .{
             .s_type = .render_pass_create_info,
-            .attachment_count = @intCast(color_attachment.len),
+            .attachment_count = color_attachment.len,
             .p_attachments = &color_attachment,
-            .subpass_count = @intCast(subpass.len),
+            .subpass_count = subpass.len,
             .p_subpasses = &subpass,
+            .dependency_count = subpass_dependencies.len,
+            .p_dependencies = &subpass_dependencies,
         };
 
         self.render_pass = try self.logical_device.createRenderPass(
@@ -574,9 +598,73 @@ pub const Stone = struct {
         self.index_buffer = try .init(self);
     }
 
-    /// Allocates and sets the per-frame uniform buffers
+    /// Allocates and sets the per-frame uniform buffers.
     fn createUniformBuffers(self: *Stone) !void {
         self.uniform_buffers = try .init(self);
+    }
+
+    /// Creates the descriptor set for binding uniform buffers in the shader.
+    fn createDescriptorPool(self: *Stone) !void {
+        const pool_sizes = [_]vk.DescriptorPoolSize{.{
+            .type = .uniform_buffer,
+            .descriptor_count = draw.max_frames_in_flight,
+        }};
+
+        const pool_info: vk.DescriptorPoolCreateInfo = .{
+            .s_type = .descriptor_pool_create_info,
+            .pool_size_count = pool_sizes.len,
+            .p_pool_sizes = &pool_sizes,
+            .max_sets = draw.max_frames_in_flight,
+        };
+
+        self.descriptor_pool = try self.logical_device.createDescriptorPool(
+            &pool_info,
+            null,
+        );
+    }
+
+    /// Allocates and populates the pool's sets.
+    fn createDescriptorSets(self: *Stone) !void {
+        var layouts: [draw.max_frames_in_flight]vk.DescriptorSetLayout = @splat(self.descriptor_set_layout);
+        const alloc_info: vk.DescriptorSetAllocateInfo = .{
+            .s_type = .descriptor_set_allocate_info,
+            .descriptor_pool = self.descriptor_pool,
+            .descriptor_set_count = draw.max_frames_in_flight,
+            .p_set_layouts = &layouts,
+        };
+
+        self.descriptor_sets = try self.allocator.alloc(vk.DescriptorSet, draw.max_frames_in_flight);
+        try self.logical_device.allocateDescriptorSets(
+            &alloc_info,
+            self.descriptor_sets.ptr,
+        );
+
+        inline for (0..draw.max_frames_in_flight) |i| {
+            const buffer_infos = [_]vk.DescriptorBufferInfo{.{
+                .buffer = self.uniform_buffers.buffers[i].buf,
+                .offset = 0,
+                .range = @sizeOf(buffer.NativeUniformBufferObject),
+            }};
+
+            const descriptor_writes = [_]vk.WriteDescriptorSet{.{
+                .s_type = .write_descriptor_set,
+                .dst_set = self.descriptor_sets[i],
+                .dst_binding = 0,
+                .dst_array_element = 0,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = 1,
+                .p_buffer_info = &buffer_infos,
+                .p_image_info = @ptrCast(@alignCast(&undefined)),
+                .p_texel_buffer_view = @ptrCast(@alignCast(&undefined)),
+            }};
+
+            self.logical_device.updateDescriptorSets(
+                descriptor_writes.len,
+                &descriptor_writes,
+                0,
+                null,
+            );
+        }
     }
 
     /// Creates the applications command buffer whose lifetime is tied to the command pool.

@@ -3,11 +3,14 @@ const std = @import("std");
 const vulkan = @import("vulkan.zig");
 const vk = vulkan.lib;
 
+const core = @import("core");
+
 const glfw = @import("../glfw.zig");
 
 const launcher = @import("../../launcher.zig");
 
 const pipeline = @import("pipeline.zig");
+const buffer_ = @import("buffer.zig");
 
 pub const max_frames_in_flight = 2;
 
@@ -20,6 +23,7 @@ pub const Command = struct {
         stone: *launcher.Stone,
         buffer: vk.CommandBuffer,
         image_idx: u32,
+        current_frame: u32,
     ) !void {
         // Kick off the command buffer, flags van be used to specify usage constraints
         const begin_info: vk.CommandBufferBeginInfo = .{
@@ -33,7 +37,7 @@ pub const Command = struct {
         );
 
         const clear_colors = [_]vk.ClearValue{
-            .{ .color = .{ .int_32 = .{ 0, 0, 0, 1 } } },
+            .{ .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } } },
         };
 
         // Drawing starts with a configured render pass
@@ -118,6 +122,17 @@ pub const Command = struct {
             pipeline.index_type,
         );
 
+        stone.logical_device.cmdBindDescriptorSets(
+            buffer,
+            .graphics,
+            stone.graphics_pipeline.layout,
+            0,
+            1,
+            @ptrCast(&stone.descriptor_sets[current_frame]),
+            0,
+            null,
+        );
+
         stone.logical_device.cmdDrawIndexed(
             buffer,
             @intCast(pipeline.indices.len),
@@ -178,11 +193,18 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
         },
         else => return error.SwapchainPresentFailed,
     };
+
+    updateUniformBuffer(stone, current_frame);
     try stone.logical_device.resetFences(fences.len, &fences);
 
     // Now we record the command buffer, but reset first!
     try stone.logical_device.resetCommandBuffer(stone.command.buffers[current_frame], .{});
-    try Command.recordBuffer(stone, stone.command.buffers[current_frame], image_index);
+    try Command.recordBuffer(
+        stone,
+        stone.command.buffers[current_frame],
+        image_index,
+        current_frame,
+    );
 
     const command_buffers = [_]vk.CommandBuffer{
         stone.command.buffers[current_frame],
@@ -243,4 +265,39 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
     }
 
     stone.syncs.current_frame = (current_frame + 1) % max_frames_in_flight;
+}
+
+fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
+    const dt = stone.timestep.elapsed(f32);
+
+    const width: f32 = @floatFromInt(stone.swapchain.extent.width);
+    const height: f32 = @floatFromInt(stone.swapchain.extent.height);
+
+    var ubo: buffer_.OpUniformBufferObject = .{
+        .model = core.mat.rotate(
+            f32,
+            comptime .identity(1.0),
+            dt * std.math.degreesToRadians(90.0),
+            .init(.{ 0.0, 0.0, 1.0 }),
+        ),
+        .view = core.mat.lookAt(
+            f32,
+            comptime .splat(2.0),
+            comptime .splat(0.0),
+            comptime .init(.{ 0.0, 0.0, 1.0 }),
+            .rh,
+        ),
+        .proj = core.mat.perspective(
+            f32,
+            std.math.degreesToRadians(45.0),
+            width / height,
+            0.1,
+            10.0,
+        ),
+    };
+    ubo.proj.mat[1].vec[1] *= -1;
+
+    const mem = stone.uniform_buffers.mapped[current_frame];
+    const casted: *buffer_.NativeUniformBufferObject = @ptrCast(@alignCast(mem));
+    casted.* = .init(ubo);
 }

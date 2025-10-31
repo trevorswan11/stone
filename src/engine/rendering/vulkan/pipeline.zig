@@ -134,7 +134,7 @@ pub const Graphics = struct {
             .cull_mode = .{
                 .back_bit = true,
             },
-            .front_face = .clockwise,
+            .front_face = .counter_clockwise,
 
             .depth_bias_enable = .false,
             .depth_bias_constant_factor = 0.0,

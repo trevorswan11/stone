@@ -24,7 +24,7 @@ export fn main() callconv(.spirv_vertex) void {
     gpu.binding(&ubo, 0, 0);
 
     const position: Vec4 = .{ in_position[0], in_position[1], 0.0, 1.0 };
-    const perspective: Mat4 = mat4_mul(ubo.proj, mat4_mul(ubo.view, ubo.model));
+    const perspective: Mat4 = mat4_mul(mat4_mul(ubo.proj, ubo.view), ubo.model);
     gpu.position_out.* = mat4_mulVec(perspective, position);
 
     frag_color = in_color;

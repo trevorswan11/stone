@@ -90,10 +90,9 @@ pub const Stone = struct {
 
         try self.initWindow();
         self.vkb = .load(glfw.getInstanceProcAddress);
-        try self.initVulkan();
+        try self.initVulkan(thread);
 
         self.timestep = .init();
-        thread.join();
 
         return self;
     }
@@ -184,7 +183,7 @@ pub const Stone = struct {
     }
 
     /// Initializes vulkan and required objects.
-    fn initVulkan(self: *Stone) !void {
+    fn initVulkan(self: *Stone, particle_worker: std.Thread) !void {
         try self.createInstance();
         try self.setupDebugMessenger();
 
@@ -206,7 +205,7 @@ pub const Stone = struct {
         try self.createIndexBuffer();
         try self.createUniformBuffers();
         try self.createStorageBuffers();
-        try self.createParticleBuffer();
+        try self.createParticleBuffer(particle_worker);
 
         try self.createCommandBuffers();
         try self.createDescriptorPool();
@@ -664,8 +663,13 @@ pub const Stone = struct {
         self.storage_buffers = try .init(self);
     }
 
-    /// Allocates the particle vertex buffer as a substitute for compute shaders
-    fn createParticleBuffer(self: *Stone) !void {
+    /// Allocates the particle vertex buffer as a substitute for compute shaders.
+    ///
+    /// Also finalizes the particle system.
+    fn createParticleBuffer(self: *Stone, particle_worker: std.Thread) !void {
+        particle_worker.join();
+        try self.sph.finalize();
+
         self.particle_vertex_buffer = try .init(self);
     }
 

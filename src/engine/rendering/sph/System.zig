@@ -22,7 +22,7 @@ const draw = @import("../vulkan/draw.zig");
 
 const Self = @This();
 
-const num_threads = if (builtin.single_threaded) 1 else 4;
+const num_threads = if (builtin.single_threaded) 1 else 8;
 const single_threaded = num_threads == 1;
 const Search = core.Search(
     f32,
@@ -36,15 +36,15 @@ const Search = core.Search(
 pub const workgroup_load = 256;
 pub const max_particles = workgroup_load * 32;
 
+const boundary_layers = 4;
+const particle_spacing = radius * 0.75;
+
 const n: usize = 30;
 const n_float: f32 = @floatFromInt(n);
+const wall: f32 = 0.75;
 
 const r_omega: f32 = 0.15;
-const r_omega2 = r_omega * r_omega;
 const radius: f32 = 2.0 * (2.0 * r_omega / (n_float - 1.0));
-const velocity_damp: f32 = 0.005;
-
-const wall: f32 = 0.5;
 
 allocator: std.mem.Allocator,
 
@@ -53,9 +53,11 @@ prng: std.Random.DefaultPrng = undefined,
 
 min_particle: f32 = std.math.floatMax(f32),
 max_particle: f32 = std.math.floatMin(f32),
-particles: []particle.OpParticle = undefined,
 
-thread_pool: [num_threads]std.Thread = undefined,
+particles: []particle.OpParticle = undefined,
+boundary: []particle.OpParticle = undefined,
+total_particles: usize = 0,
+
 search: Search,
 
 pub fn init(allocator: std.mem.Allocator) !struct { *Self, std.Thread } {
@@ -85,12 +87,12 @@ pub fn deinit(self: *Self) void {
     }
 
     self.allocator.free(self.particles);
+    self.allocator.free(self.boundary);
 }
 
-/// Creates n particles with random initial conditions.
-///
-/// The caller is responsible for freeing the slice.
-fn spawn(self: *Self) void {
+/// Creates n particles with random initial positions.
+/// The boundary layers are also created
+fn spawn(self: *Self) !void {
     const random = self.prng.random();
 
     // Generate random position inside cube [-wall, +wall]
@@ -104,30 +106,102 @@ fn spawn(self: *Self) void {
 
         self.min_particle = @min(self.min_particle, x);
         self.max_particle = @max(self.max_particle, x);
+
+        self.particles[i].color = .init(.{
+            random.float(f32),
+            random.float(f32),
+            random.float(f32),
+            1.0,
+        });
     }
+
+    // Generate the boundary layers along the walls
+    var boundary: std.ArrayList(particle.OpParticle) = try .initCapacity(self.allocator, 10_000);
+    defer boundary.deinit(self.allocator);
+
+    try spawnWall(self.allocator, &boundary, .x, .neg);
+    try spawnWall(self.allocator, &boundary, .x, .pos);
+    try spawnWall(self.allocator, &boundary, .y, .neg);
+    try spawnWall(self.allocator, &boundary, .y, .pos);
+    try spawnWall(self.allocator, &boundary, .z, .neg);
+    try spawnWall(self.allocator, &boundary, .z, .pos);
+
+    self.boundary = try boundary.toOwnedSlice(self.allocator);
+}
+
+fn spawnWall(
+    allocator: std.mem.Allocator,
+    list: *std.ArrayList(particle.OpParticle),
+    comptime axis: enum { x, y, z },
+    comptime side: enum { pos, neg },
+) !void {
+    const direction: f32 = comptime switch (side) {
+        .pos => 1.0,
+        .neg => -1.0,
+    };
+
+    for (0..boundary_layers) |layer_idx| {
+        const layer_offset = @as(f32, @floatFromInt(layer_idx)) * particle_spacing;
+
+        var u_pos: f32 = -wall;
+        while (u_pos <= wall) : (u_pos += particle_spacing) {
+            var v_pos: f32 = -wall;
+            while (v_pos <= wall) : (v_pos += particle_spacing) {
+                const pos: Vec3 = switch (axis) {
+                    .x => .init(.{
+                        (wall * direction) + (layer_offset * direction),
+                        u_pos,
+                        v_pos,
+                    }),
+                    .y => .init(.{
+                        u_pos,
+                        (wall * direction) + (layer_offset * direction),
+                        v_pos,
+                    }),
+                    .z => .init(.{
+                        u_pos,
+                        v_pos,
+                        (wall * direction) + (layer_offset * direction),
+                    }),
+                };
+
+                try list.append(allocator, .{
+                    .position = pos,
+                    .velocity = .splat(0.0),
+                    .color = .splat(0.0),
+                });
+            }
+        }
+    }
+}
+
+pub fn finalize(self: *Self) !void {
+    _ = try self.search.addPointSet(
+        self.particles,
+        self.particles.len,
+        true,
+        .{},
+    );
+
+    _ = try self.search.addPointSet(
+        self.boundary,
+        self.boundary.len,
+        false,
+        .{},
+    );
+
+    self.total_particles += self.particles.len;
 }
 
 /// Updates all particles on the screen and sends them to the vertex buffer's memory.
 pub fn updateParticles(self: *Self, dt: f32, memory: *anyopaque) !void {
-    for (self.particles) |*p| {
-        p.position = .spawn(p.position.vec + p.velocity.scale(dt).vec);
-
-        if (p.position.vec[0] <= -wall or p.position.vec[0] >= wall) {
-            p.velocity.vec[0] *= -1;
-        }
-
-        if (p.position.vec[1] <= -wall or p.position.vec[1] >= wall) {
-            p.velocity.vec[1] *= -1;
-        }
-
-        if (p.position.vec[2] <= 0.0 or p.position.vec[2] >= 1.0) {
-            p.velocity.vec[2] *= -1;
-        }
-    }
+    self.search.requires_refresh = true;
+    try self.search.updatePointSets();
+    try self.search.findNeighbors(.{ .actual = .{ .points_changed = true } });
+    _ = dt;
 
     const mapped_particles: [*]particle.NativeParticle = @ptrCast(@alignCast(memory));
-
-    for (self.particles, mapped_particles) |op, *mapped_particle| {
-        mapped_particle.* = .init(op);
+    for (self.particles, 0..) |op, i| {
+        mapped_particles[i] = .init(op);
     }
 }

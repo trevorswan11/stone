@@ -461,7 +461,7 @@ pub const ParticleVertexBuffer = struct {
     size: vk.DeviceSize,
 
     pub fn init(stone: *launcher.Stone) !ParticleVertexBuffer {
-        const size = @sizeOf(particle.NativeParticle) * System.max_particles;
+        const size = @sizeOf(particle.NativeParticle) * (stone.sph.total_particles);
 
         // Create a buffer for both the host and device
         const buffer = try Buffer.init(

@@ -11,8 +11,11 @@ start_time_us: i64,
 /// The time of the last frame in microseconds
 last_frame_time_us: i64,
 
-/// The last updated delta time in seconds
+/// The clamped true last updated delta time in seconds
 dt: f32 = 0,
+
+/// The true last updated delta time in seconds
+true_dt: f32 = 0,
 
 pub fn init() Self {
     const t = std.time.microTimestamp();
@@ -40,8 +43,11 @@ pub fn step(self: *Self, comptime T: type) T {
     const dt = self.last_frame_time_us - old;
 
     const dt_f: T = @floatFromInt(dt);
-    const dt_s = @min(max_dt, dt_f / us_per_s);
+    const true_dt = dt_f / us_per_s;
+    const dt_s = @min(max_dt, true_dt);
+
     self.dt = @floatCast(dt_s);
+    self.true_dt = @floatCast(true_dt);
     return dt_s;
 }
 

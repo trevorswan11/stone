@@ -45,12 +45,8 @@ pub const OpParticle = struct {
                 const vel_vec: box.Vec3 = .init(.{ circle_x, circle_y, random.float(f32) });
                 particle.velocity = vel_vec.normalize().scale(0.25);
             }
-            particle.color = .init(.{
-                random.float(f32),
-                random.float(f32),
-                random.float(f32),
-                1.0,
-            });
+
+            particle.color = .init(.{ 0.0, 0.0, 1.0, 1.0 });
         }
 
         return particles;
@@ -97,8 +93,8 @@ pub const NativeParticle = struct {
     pub fn init(op: OpParticle) NativeParticle {
         return .{
             .position = op.position.vec,
-            .velocity = op.velocity.vec,
             .color = op.color.vec,
+            .velocity = op.velocity.vec,
         };
     }
 

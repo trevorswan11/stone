@@ -101,7 +101,8 @@ pub fn build(b: *std.Build) !void {
     try addShaders(b, stone, .{ test_step, gest_step }, compiles, &.{
         .{ .name = "quad_vertex_shader", .source_path = "src/shaders/quad_vertex.zig", .destination_name = "quad_vertex.spv" },
         .{ .name = "point_vertex_shader", .source_path = "src/shaders/point_vertex.zig", .destination_name = "point_vertex.spv" },
-        .{ .name = "fragment_shader", .source_path = "src/shaders/fragment.zig", .destination_name = "fragment.spv" },
+        .{ .name = "quad_fragment_shader", .source_path = "src/shaders/quad_fragment.zig", .destination_name = "quad_fragment.spv" },
+        .{ .name = "point_fragment_shader", .source_path = "src/shaders/point_fragment.zig", .destination_name = "point_fragment.spv" },
         // .{ .name = "compute_shader", .source_path = "src/shaders/compute.zig", .destination_name = "compute.spv" }, // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
     });
     addUtils(b);

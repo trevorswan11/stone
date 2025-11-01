@@ -419,7 +419,7 @@ pub const Stone = struct {
         glfw.getFramebufferSize(self.window, &width, &height);
         while (width == 0 or height == 0) {
             glfw.getFramebufferSize(self.window, &width, &height);
-            glfw.waitEvents();
+            // glfw.waitEvents();
         }
 
         try self.logical_device.deviceWaitIdle();

@@ -19,16 +19,54 @@ pub const PointID = struct {
 /// Almost entirely managed externally.
 ///
 /// T must be a float, and this is confirmed at comptime.
-pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
+pub fn PointSet(comptime T: type, comptime P: type, comptime config: struct {
+    single_threaded: bool,
+    position_field: []const u8 = "vec",
+}) type {
     switch (@typeInfo(T)) {
         .float => {},
         else => @compileError("T must be a known float type"),
     }
 
+    switch (@typeInfo(P)) {
+        .@"struct" => {
+            if (!@hasField(P, config.position_field)) {
+                @compileError("P must have field " ++ config.position_field);
+            }
+
+            const FieldType = @FieldType(P, config.position_field);
+            switch (@typeInfo(FieldType)) {
+                .array => |a| {
+                    if (a.child != T) {
+                        @compileError("P field " ++ config.position_field ++ " must have child type " ++ @typeName(T));
+                    } else if (a.len < 3) {
+                        @compileError("P field " ++ config.position_field ++ " must have length 3 or greater");
+                    }
+                },
+                .pointer => |p| {
+                    if (p.child != T) {
+                        @compileError("P field " ++ config.position_field ++ " must have child type " ++ @typeName(T));
+                    } else if (p.size == .one or p.size == .c) {
+                        @compileError("P field " ++ config.position_field ++ " must be an indexable pointer");
+                    }
+                },
+                .vector => |v| {
+                    if (v.child != T) {
+                        @compileError("P field " ++ config.position_field ++ " must have child type " ++ @typeName(T));
+                    } else if (v.len < 3) {
+                        @compileError("P field " ++ config.position_field ++ " must have length 3 or greater");
+                    }
+                },
+                else => @compileError("P field " ++ config.position_field ++ " must be an array, vector, or pointer"),
+            }
+        },
+        else => @compileError("P must be a struct type"),
+    }
+
     return struct {
         const Self = @This();
 
-        pub const Lock = if (single_threaded) struct {
+        pub const Lock = if (config.single_threaded) struct {
             div_zero_appeaser: u1 = 0,
 
             /// No-op lock for single threaded builds.
@@ -46,14 +84,14 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
             }
         } else std.Thread.Mutex;
 
-        pub const Vec3 = vec.Vector(T, 3);
+        pub const PointType = P;
 
         pub const NeighborAccumulator = std.ArrayList(std.ArrayList(ValueType));
         pub const NeighborList = std.ArrayList(NeighborAccumulator);
 
         allocator: std.mem.Allocator,
 
-        position_data: []const Vec3,
+        position_data: []const P,
         number_of_points: usize,
         dynamic: bool,
 
@@ -70,7 +108,7 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
         /// be freed until the associated set is no longer useful.
         pub fn init(
             allocator: std.mem.Allocator,
-            position_data: []const Vec3,
+            position_data: []const P,
             total_points: usize,
             dynamic: bool,
         ) !Self {
@@ -96,7 +134,7 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
         /// Resizes the point set, obviously.
         pub fn resize(
             self: *Self,
-            position_data: []const Vec3,
+            position_data: []const P,
             total_points: usize,
         ) !void {
             self.position_data = position_data;
@@ -208,7 +246,7 @@ pub fn PointSet(comptime T: type, comptime single_threaded: bool) type {
         /// Retrieves the data point at index idx in the position data.
         ///
         /// Asserts boundedness.
-        pub fn point(self: *const Self, idx: usize) *const Vec3 {
+        pub fn point(self: *const Self, idx: usize) *const P {
             std.debug.assert(idx < self.position_data.len);
             return &self.position_data[idx];
         }
@@ -223,7 +261,7 @@ const expectError = testing.expectError;
 
 test "PointSet initialization and destruction" {
     const allocator = testing.allocator;
-    var ps = try PointSet(f32, true).init(
+    var ps = try PointSet(f32, vec.Vector(f32, 3), .{ .single_threaded = true }).init(
         allocator,
         &.{.init(.{ 1.0, 2.0, 3.0 })},
         1,
@@ -235,8 +273,8 @@ test "PointSet initialization and destruction" {
 test "PointSet basic init/deinit and sort" {
     const allocator = testing.allocator;
 
-    const P = PointSet(f32, true);
-    var points = [_]P.Vec3{
+    const P = PointSet(f32, vec.Vector(f32, 3), .{ .single_threaded = true });
+    var points = [_]P.PointType{
         .init(.{ 0.0, 0.1, 0.2 }),
         .init(.{ 1.0, 1.1, 1.2 }),
         .init(.{ 2.0, 2.1, 2.2 }),
@@ -249,7 +287,7 @@ test "PointSet basic init/deinit and sort" {
     try expect(!set.dynamic);
 
     const p1 = set.point(1);
-    try expectEqual(p1.*, P.Vec3.init(.{ 1.0, 1.1, 1.2 }));
+    try expectEqual(p1.*, P.PointType.init(.{ 1.0, 1.1, 1.2 }));
     try set.sort_table.appendSlice(allocator, &[_]ValueType{ 2, 1, 0 });
 
     var data = [_]ValueType{ 10, 20, 30 };
@@ -260,8 +298,8 @@ test "PointSet basic init/deinit and sort" {
 test "PointSet neighborCount and fetchNeighbor" {
     const allocator = testing.allocator;
 
-    const P = PointSet(f32, true);
-    var points = [_]P.Vec3{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
+    const P = PointSet(f32, vec.Vector(f32, 3), .{ .single_threaded = true });
+    var points = [_]P.PointType{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
     var set = try P.init(allocator, &points, 2, true);
     defer set.deinit();
 
@@ -281,8 +319,8 @@ test "PointSet neighborCount and fetchNeighbor" {
 test "PointSet fetchNeighborList returns copy" {
     const allocator = testing.allocator;
 
-    const P = PointSet(f32, true);
-    var points = [_]P.Vec3{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
+    const P = PointSet(f32, vec.Vector(f32, 3), .{ .single_threaded = true });
+    var points = [_]P.PointType{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
     var set = try P.init(allocator, &points, 2, true);
     defer set.deinit();
 
@@ -302,8 +340,8 @@ test "PointSet fetchNeighborList returns copy" {
 test "PointSet sort errors when table missing" {
     const allocator = testing.allocator;
 
-    const P = PointSet(f32, true);
-    var points = [_]P.Vec3{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
+    const P = PointSet(f32, vec.Vector(f32, 3), .{ .single_threaded = true });
+    var points = [_]P.PointType{ .init(.{ 0, 0, 0 }), .init(.{ 1, 1, 1 }) };
     var set = try P.init(allocator, &points, 2, true);
     defer set.deinit();
 

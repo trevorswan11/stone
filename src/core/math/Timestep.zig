@@ -3,6 +3,7 @@ const std = @import("std");
 const Self = @This();
 
 const us_per_s: comptime_float = @floatFromInt(std.time.us_per_s);
+const max_dt = 1.0 / 30.0;
 
 /// The time of the first recorded frame in microseconds
 start_time_us: i64,
@@ -24,6 +25,9 @@ pub fn init() Self {
 /// Returns the time elapsed since the last frame in seconds.
 /// Also updates the internal last frame time and delta time value.
 ///
+/// The last recorded frame time is always accurate, but dt is clamped to a minimum
+/// of 30fps to prevent physics from blowing up on move.
+///
 /// T must be a known float type.
 pub fn step(self: *Self, comptime T: type) T {
     comptime switch (@typeInfo(T)) {
@@ -36,7 +40,7 @@ pub fn step(self: *Self, comptime T: type) T {
     const dt = self.last_frame_time_us - old;
 
     const dt_f: T = @floatFromInt(dt);
-    const dt_s = dt_f / us_per_s;
+    const dt_s = @min(max_dt, dt_f / us_per_s);
     self.dt = @floatCast(dt_s);
     return dt_s;
 }

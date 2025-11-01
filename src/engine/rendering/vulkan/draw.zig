@@ -420,8 +420,6 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
 }
 
 fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
-    const dt = stone.timestep.elapsed(f32);
-
     const width: f32 = @floatFromInt(stone.swapchain.extent.width);
     const height: f32 = @floatFromInt(stone.swapchain.extent.height);
 
@@ -431,7 +429,7 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
         .quad_model = core.mat.rotate(
             f32,
             comptime .identity(1.0),
-            dt * 0.0, // @rem(dt * std.math.degreesToRadians(90.0), 360.0),
+            0.0,
             .init(.{ 0.0, 0.0, 1.0 }),
         ),
         .point_model = core.mat.rotate(

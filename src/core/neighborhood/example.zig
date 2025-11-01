@@ -15,7 +15,7 @@ const Vec3 = core.Vector(Real, 3);
 
 const num_threads = if (builtin.single_threaded) 1 else 4;
 const single_threaded = num_threads == 1;
-const Search = core.search.Search(Real, .{ .threadedness = .{ .multithreaded = num_threads } });
+const Search = core.search.Search(Real, Vec3, .{ .threadedness = .{ .multithreaded = num_threads } });
 
 fn generatePositions() struct {
     positions: []const Vec3,
@@ -88,7 +88,6 @@ const max_pos = position_data.max;
 const Example = struct {
     allocator: std.mem.Allocator,
 
-    prng: std.Random.DefaultPrng,
     writer: *std.Io.Writer,
     pos: [positions.len]Vec3 = undefined,
     workers: [num_threads]std.Thread = undefined,
@@ -98,13 +97,13 @@ const Example = struct {
     pub fn init(allocator: std.mem.Allocator, writer: *std.Io.Writer) !Example {
         var self: Example = .{
             .allocator = allocator,
-            .prng = .init(@bitCast(std.time.timestamp())),
             .writer = writer,
             .search = try .init(allocator, radius, .{ .erase_empty_cells = true }),
         };
 
+        var prng: std.Random.DefaultPrng = .init(@bitCast(std.time.timestamp()));
         @memcpy(self.pos[0..], positions);
-        std.Random.shuffle(self.prng.random(), Vec3, &self.pos);
+        std.Random.shuffle(prng.random(), Vec3, &self.pos);
 
         return self;
     }

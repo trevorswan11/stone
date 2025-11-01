@@ -1,10 +1,42 @@
 const std = @import("std");
 
+const vec = @import("../math/vec.zig");
 const hash = @import("hash.zig");
 const zorder = @import("zorder.zig");
 const points = @import("points.zig");
+const work = @import("work.zig");
 const parallel_loop = @import("../threading/parallel_loop.zig");
 const ranges = @import("../threading/ranges.zig");
+
+const NeighborCoord = struct {
+    dj: i32,
+    dk: i32,
+    dl: i32,
+
+    pub fn gridIdx(self: NeighborCoord) i32 {
+        return 9 * (self.dj + 1) + 3 * (self.dk + 1) + (self.dl + 1);
+    }
+};
+
+/// A coordinate map for a 3D grid including the center.
+pub const neighbors_3d = blk: {
+    var out: [27]NeighborCoord = undefined;
+    var i = 0;
+    for ([_]i32{ -1, 0, 1 }) |dj| {
+        for ([_]i32{ -1, 0, 1 }) |dk| {
+            for ([_]i32{ -1, 0, 1 }) |dl| {
+                out[i] = .{
+                    .dj = dj,
+                    .dk = dk,
+                    .dl = dl,
+                };
+                i += 1;
+            }
+        }
+    }
+    break :blk out;
+};
+pub const grid_center = 13;
 
 /// Creates a neighborhood searcher with the given floating point type.
 ///
@@ -19,7 +51,10 @@ const ranges = @import("../threading/ranges.zig");
 /// followed by passing 1 as your number of threads.
 ///
 /// T must be a float, and this is confirmed at comptime.
-pub fn Search(comptime T: type, comptime config: struct {
+///
+/// P must be a struct that has an indexable position field with the `position_field` name in config.
+/// This fields child type must be T and must be at least of length 3.
+pub fn Search(comptime T: type, comptime P: type, comptime config: struct {
     initial_num_point_sets: usize = 50,
     initial_num_indices: usize = 50,
     initial_num_neighbors: usize = 50,
@@ -27,6 +62,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         single_threaded: void,
         multithreaded: usize,
     },
+    position_field: []const u8 = "vec",
 }) type {
     switch (@typeInfo(T)) {
         .float => {},
@@ -50,9 +86,14 @@ pub fn Search(comptime T: type, comptime config: struct {
 
         const Self = @This();
 
-        pub const PointSet = points.PointSet(T, single_threaded);
-        pub const Vec3 = PointSet.Vec3;
+        pub const PointSet = points.PointSet(T, P, .{
+            .single_threaded = single_threaded,
+            .position_field = config.position_field,
+        });
+        const PointType = PointSet.PointType;
         pub const HashEntry = hash.Entry(initial_num_indices);
+
+        const NeighborPair = struct { pa: points.PointID, pb: points.PointID };
 
         pub const QueryVariant = union(enum) {
             /// Performs the actual query.
@@ -75,7 +116,7 @@ pub fn Search(comptime T: type, comptime config: struct {
             ///
             /// The neighbors list is updated in place with a list of neighboring points.
             single_point: struct {
-                point: *const Vec3,
+                point: *const P,
                 neighbors: *PointSet.NeighborAccumulator,
             },
         };
@@ -221,7 +262,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         pub fn resizePointSet(
             self: *Self,
             point_set_idx: usize,
-            new_positions: []const Vec3,
+            new_positions: []const P,
             total_points: usize,
         ) !void {
             if (self.requires_refresh) {
@@ -298,7 +339,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         /// to the newly created point set.
         pub fn addPointSet(
             self: *Self,
-            point_positions: []const Vec3,
+            point_positions: []const P,
             total_points: usize,
             dynamic: bool,
             set_flags: hash.ActivationTable.SetFlags,
@@ -391,82 +432,9 @@ pub fn Search(comptime T: type, comptime config: struct {
                     }
 
                     const chunks = ranges.chunk(Fragment, kv_pairs.items, num_threads);
-                    const context = .{self};
-
-                    try parallel_loop.@"for"(
-                        Fragment,
-                        kv_pairs.items,
-                        num_threads,
-                        chunks,
-                        &self.workers,
-                        context,
-                        struct {
-                            pub fn afn(ctx: @TypeOf(context), slice: []Fragment, thread_num: usize) !void {
-                                _ = thread_num;
-                                const search = ctx.@"0";
-                                for (slice) |kvp| {
-                                    _, const entry_idx = kvp;
-                                    std.debug.assert(entry_idx.* < search.entries.items.len);
-                                    const entry = search.entries.items[entry_idx.*];
-                                    if (entry.searching_points == 0) continue;
-
-                                    for (0..entry.indices.items.len) |a| {
-                                        const pa = entry.indices.items[a];
-                                        std.debug.assert(pa.set_id < search.point_sets.items.len);
-
-                                        for (a + 1..entry.indices.items.len) |b| {
-                                            const pb = entry.indices.items[b];
-                                            std.debug.assert(pb.set_id < search.point_sets.items.len);
-
-                                            const xa = search.point_sets.items[pa.set_id].point(pa.id);
-                                            const xb = search.point_sets.items[pb.set_id].point(pb.id);
-
-                                            // Check both activations since edges are directed
-                                            if (distanceSquared(xa, xb) < search.radius2) {
-                                                // Enforce canonical locking order
-                                                var p1 = pa;
-                                                var p2 = pb;
-                                                if (p1.set_id > p2.set_id or (p1.set_id == p2.set_id and p1.id > p2.id)) {
-                                                    std.mem.swap(@TypeOf(pa), &p1, &p2);
-                                                }
-
-                                                if (search.activation_table.isActive(pa.set_id, pb.set_id)) {
-                                                    const acquired = search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].tryLock();
-                                                    defer {
-                                                        if (acquired) {
-                                                            search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].unlock();
-                                                        }
-                                                    }
-
-                                                    try search.point_sets.items[pa.set_id].neighbors.items[pb.set_id].items[pa.id].append(
-                                                        search.allocator,
-                                                        pb.id,
-                                                    );
-                                                }
-                                                if (search.activation_table.isActive(pb.set_id, pa.set_id)) {
-                                                    const acquired = search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].tryLock();
-                                                    defer {
-                                                        if (acquired) {
-                                                            search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].unlock();
-                                                        }
-                                                    }
-
-                                                    try search.point_sets.items[pb.set_id].neighbors.items[pa.set_id].items[pb.id].append(
-                                                        search.allocator,
-                                                        pa.id,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }.afn,
-                        .{},
-                    );
 
                     // Create some temp data structures for tracking on the second pass
-                    var visited = std.ArrayList([27]bool).empty;
+                    var visited: std.ArrayList([27]bool) = .empty;
                     try visited.resize(self.allocator, self.entries.items.len);
                     defer visited.deinit(self.allocator);
                     for (visited.items) |*arr| arr.* = @splat(false);
@@ -476,114 +444,36 @@ pub fn Search(comptime T: type, comptime config: struct {
                     try entry_locks.resize(self.allocator, self.entries.items.len);
                     for (entry_locks.items) |*sl| sl.* = .{};
 
-                    // Parallel operation with same chunks, but we need more mutable context
-                    const bigger_context = .{ self, &visited, &entry_locks };
+                    const context = .{ self, &visited, &entry_locks };
+
+                    const ActualWork = work.ActualSearch(
+                        @TypeOf(context),
+                        Fragment,
+                        T,
+                        P,
+                        distanceSquared,
+                    );
+
+                    // Perform two passes over the
                     try parallel_loop.@"for"(
                         Fragment,
                         kv_pairs.items,
                         num_threads,
                         chunks,
                         &self.workers,
-                        bigger_context,
-                        struct {
-                            pub fn afn(ctx: @TypeOf(bigger_context), slice: []Fragment, thread_num: usize) !void {
-                                _ = thread_num;
-                                const search, const visited_entries, const e_locks = ctx;
-                                for (slice) |kvp| {
-                                    const key, const entry_idx = kvp;
-                                    std.debug.assert(entry_idx.* < search.entries.items.len);
-                                    const entry = search.entries.items[entry_idx.*];
-                                    if (entry.searching_points == 0) continue;
+                        context,
+                        ActualWork.same,
+                        .{},
+                    );
 
-                                    for ([_]i32{ -1, 0, 1 }) |dj| {
-                                        for ([_]i32{ -1, 0, 1 }) |dk| {
-                                            for ([_]i32{ -1, 0, 1 }) |dl| {
-                                                const lock_idx: usize = @intCast(9 * (dj + 1) + 3 * (dk + 1) + (dl + 1));
-                                                if (lock_idx == 13) continue;
-
-                                                // Check if we've seen this before
-                                                {
-                                                    e_locks.items[entry_idx.*].lock();
-                                                    defer e_locks.items[entry_idx.*].unlock();
-
-                                                    if (visited_entries.items[entry_idx.*][lock_idx]) {
-                                                        continue;
-                                                    }
-                                                }
-
-                                                const value = search.map.get(.init(
-                                                    key.key[0] + dj,
-                                                    key.key[1] + dk,
-                                                    key.key[2] + dl,
-                                                )) orelse continue;
-
-                                                // Order the entry indices for thread safety
-                                                var entry_ids: [2]points.ValueType = .{
-                                                    entry_idx.*, value,
-                                                };
-                                                if (entry_ids[0] > entry_ids[1]) {
-                                                    entry_ids = .{
-                                                        value, entry_idx.*,
-                                                    };
-                                                }
-
-                                                // Check if we've seen this before - marking if we haven't
-                                                {
-                                                    e_locks.items[entry_ids[0]].lock();
-                                                    defer e_locks.items[entry_ids[0]].unlock();
-                                                    e_locks.items[entry_ids[1]].lock();
-                                                    defer e_locks.items[entry_ids[1]].unlock();
-
-                                                    if (visited_entries.items[entry_idx.*][lock_idx]) {
-                                                        continue;
-                                                    }
-
-                                                    visited_entries.items[entry_idx.*][lock_idx] = true;
-                                                    visited_entries.items[value][26 - lock_idx] = true;
-                                                }
-
-                                                // Final neighborhood search
-                                                for (entry.indices.items) |pa| {
-                                                    for (search.entries.items[value].indices.items) |pb| {
-                                                        const xa = search.point_sets.items[pa.set_id].point(pa.id);
-                                                        const xb = search.point_sets.items[pb.set_id].point(pb.id);
-
-                                                        // Check both activations since edges are directed
-                                                        if (distanceSquared(xa, xb) < search.radius2) {
-                                                            // Enforce canonical locking order
-                                                            var p1 = pa;
-                                                            var p2 = pb;
-                                                            if (p1.set_id > p2.set_id or (p1.set_id == p2.set_id and p1.id > p2.id)) {
-                                                                std.mem.swap(@TypeOf(pa), &p1, &p2);
-                                                            }
-
-                                                            search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].lock();
-                                                            defer search.point_sets.items[p1.set_id].locks.items[p2.set_id].items[p1.id].unlock();
-
-                                                            search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].lock();
-                                                            defer search.point_sets.items[p2.set_id].locks.items[p1.set_id].items[p2.id].unlock();
-
-                                                            if (search.activation_table.isActive(pa.set_id, pb.set_id)) {
-                                                                try search.point_sets.items[pa.set_id].neighbors.items[pb.set_id].items[pa.id].append(
-                                                                    search.allocator,
-                                                                    pb.id,
-                                                                );
-                                                            }
-                                                            if (search.activation_table.isActive(pb.set_id, pa.set_id)) {
-                                                                try search.point_sets.items[pb.set_id].neighbors.items[pa.set_id].items[pb.id].append(
-                                                                    search.allocator,
-                                                                    pa.id,
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }.afn,
+                    try parallel_loop.@"for"(
+                        Fragment,
+                        kv_pairs.items,
+                        num_threads,
+                        chunks,
+                        &self.workers,
+                        context,
+                        ActualWork.bucket,
                         .{},
                     );
                 },
@@ -636,26 +526,22 @@ pub fn Search(comptime T: type, comptime config: struct {
                         );
                     } else unreachable;
 
-                    inline for ([_]i32{ -1, 0, 1 }) |dj| {
-                        inline for ([_]i32{ -1, 0, 1 }) |dk| {
-                            inline for ([_]i32{ -1, 0, 1 }) |dl| {
-                                if (comptime 9 * (dj + 1) + 3 * (dk + 1) + (dl + 1) != 13) {
-                                    if (self.map.get(.init(
-                                        key.key[0] + dj,
-                                        key.key[1] + dk,
-                                        key.key[2] + dl,
-                                    ))) |value| {
-                                        try addNeighbors(
-                                            self,
-                                            value,
-                                            xa,
-                                            neighbors,
-                                            .{ .id = point_idx, .set_id = point_set_id },
-                                            true,
-                                            false,
-                                        );
-                                    }
-                                }
+                    inline for (neighbors_3d) |n| {
+                        if (comptime n.gridIdx() != grid_center) {
+                            if (self.map.get(.init(
+                                key.key[0] + n.dj,
+                                key.key[1] + n.dk,
+                                key.key[2] + n.dl,
+                            ))) |value| {
+                                try addNeighbors(
+                                    self,
+                                    value,
+                                    xa,
+                                    neighbors,
+                                    .{ .id = point_idx, .set_id = point_set_id },
+                                    true,
+                                    false,
+                                );
                             }
                         }
                     }
@@ -699,26 +585,22 @@ pub fn Search(comptime T: type, comptime config: struct {
                         );
                     }
 
-                    inline for ([_]i32{ -1, 0, 1 }) |dj| {
-                        inline for ([_]i32{ -1, 0, 1 }) |dk| {
-                            inline for ([_]i32{ -1, 0, 1 }) |dl| {
-                                if (comptime 9 * (dj + 1) + 3 * (dk + 1) + (dl + 1) != 13) {
-                                    if (self.map.get(.init(
-                                        key.key[0] + dj,
-                                        key.key[1] + dk,
-                                        key.key[2] + dl,
-                                    ))) |value| {
-                                        try addNeighbors(
-                                            self,
-                                            value,
-                                            xa,
-                                            neighbors,
-                                            null,
-                                            false,
-                                            false,
-                                        );
-                                    }
-                                }
+                    inline for (neighbors_3d) |n| {
+                        if (comptime n.gridIdx() != grid_center) {
+                            if (self.map.get(.init(
+                                key.key[0] + n.dj,
+                                key.key[1] + n.dk,
+                                key.key[2] + n.dl,
+                            ))) |value| {
+                                try addNeighbors(
+                                    self,
+                                    value,
+                                    xa,
+                                    neighbors,
+                                    null,
+                                    false,
+                                    false,
+                                );
                             }
                         }
                     }
@@ -734,7 +616,7 @@ pub fn Search(comptime T: type, comptime config: struct {
         pub fn addNeighbors(
             self: *const Self,
             relevant_entry_idx: points.ValueType,
-            relevant_point: *const Vec3,
+            relevant_point: *const P,
             neighbors: *PointSet.NeighborAccumulator,
             relevant_point_id: ?points.PointID,
             comptime omit_inactive: bool,
@@ -768,10 +650,17 @@ pub fn Search(comptime T: type, comptime config: struct {
         /// Returns the squared distance between two points:
         ///
         /// d = (a1 - b1)^2 + (a3 - b3)^2 + (a3 - b3)^2
-        fn distanceSquared(a: *const Vec3, b: *const Vec3) T {
+        fn distanceSquared(a: *const P, b: *const P) T {
             var dist: T = 0;
             inline for (0..3) |i| {
-                const diff = a.vec[i] - b.vec[i];
+                const diff = @field(
+                    a,
+                    config.position_field,
+                )[i] - @field(
+                    b,
+                    config.position_field,
+                )[i];
+
                 dist += diff * diff;
             }
             return dist;
@@ -1037,12 +926,13 @@ pub fn Search(comptime T: type, comptime config: struct {
         }
 
         /// Converts a triple float index to a world space position x.
-        pub fn cellIndex(self: *Self, point: *const Vec3) hash.Key {
+        pub fn cellIndex(self: *Self, point: *const P) hash.Key {
             var key: hash.Key = undefined;
             inline for (0..3) |i| {
                 key.key[i] = blk: {
-                    const val: i32 = @intFromFloat(self.inverse_radius * point.vec[i]);
-                    break :blk if (point.vec[i] >= 0.0) val else val - 1;
+                    const coord = @field(point, config.position_field)[i];
+                    const val: i32 = @intFromFloat(self.inverse_radius * coord);
+                    break :blk if (coord >= 0.0) val else val - 1;
                 };
             }
             return key;
@@ -1057,13 +947,13 @@ const expectEqualSlices = testing.expectEqualSlices;
 
 test "Search initialization and destruction" {
     const allocator = testing.allocator;
-    var search = try Search(f32, .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
+    var search = try Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
     defer search.deinit();
 }
 
 test "Cell index probing" {
     const allocator = testing.allocator;
-    var search = try Search(f32, .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
+    var search = try Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try expectEqualSlices(i32, &.{ -657740481, 153456480, 636497664 }, &search.cellIndex(&.init(.{ -2065305262.0, 481853423.0, 1998602736.0 })).key);
@@ -1080,7 +970,7 @@ test "Cell index probing" {
 
 test "Search basic validity" {
     const allocator = testing.allocator;
-    var search = try Search(f32, .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
+    var search = try Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try search.zort();
@@ -1091,18 +981,18 @@ test "Search basic usage" {
     const allocator = testing.allocator;
 
     const radius: f32 = 1.0;
-    const S = Search(f32, .{ .threadedness = .single_threaded });
+    const S = Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded });
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
     // Set 0: Static, 2 points
-    var p0_data = [_]S.Vec3{
+    var p0_data = [_]S.PointType{
         .init(.{ 0.0, 0.0, 0.0 }), // p0_0 @ cell (0,0,0)
         .init(.{ 5.0, 5.0, 5.0 }), // p0_1 @ cell (5,5,5)
     };
 
     // Set 1: Dynamic, 2 points
-    var p1_data_buf = try std.ArrayList(S.Vec3).initCapacity(allocator, 12);
+    var p1_data_buf = try std.ArrayList(S.PointType).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
     try p1_data_buf.appendSlice(allocator, &.{
         .init(.{ 0.5, 0.0, 0.0 }), // p1_0 @ cell (0,0,0)
@@ -1207,15 +1097,15 @@ test "Search neighbor queries - single threaded" {
     const allocator = testing.allocator;
 
     const radius: f32 = 1.0;
-    const S = Search(f32, .{ .threadedness = .single_threaded });
+    const S = Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded });
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
-    var p0_data = [_]S.Vec3{
+    var p0_data = [_]S.PointType{
         .init(.{ 0.0, 0.0, 0.0 }),
         .init(.{ 5.0, 5.0, 5.0 }),
     };
-    var p1_data_buf = try std.ArrayList(S.Vec3).initCapacity(allocator, 12);
+    var p1_data_buf = try std.ArrayList(S.PointType).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
     try p1_data_buf.appendSlice(allocator, &.{
         .init(.{ 0.5, 0.0, 0.0 }),
@@ -1282,7 +1172,7 @@ test "Search neighbor queries - single threaded" {
             defer neighbors_single.deinit(allocator);
             for (neighbors_single.items) |*list| list.deinit(allocator);
         }
-        const query_point: S.Vec3 = .init(.{ 0.1, 0.1, 0.1 });
+        const query_point: S.PointType = .init(.{ 0.1, 0.1, 0.1 });
 
         try search.findNeighbors(.{ .single_point = .{
             .point = &query_point,
@@ -1303,15 +1193,15 @@ test "Search neighbor queries - multi threaded" {
     const allocator = tsa.allocator();
 
     const radius: f32 = 1.0;
-    const S = Search(f32, .{ .threadedness = .{ .multithreaded = 2 } });
+    const S = Search(f32, vec.Vector(f32, 3), .{ .threadedness = .{ .multithreaded = 2 } });
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
-    var p0_data = [_]S.Vec3{
+    var p0_data = [_]S.PointType{
         .init(.{ 0.0, 0.0, 0.0 }),
         .init(.{ 5.0, 5.0, 5.0 }),
     };
-    var p1_data_buf = try std.ArrayList(S.Vec3).initCapacity(allocator, 12);
+    var p1_data_buf = try std.ArrayList(S.PointType).initCapacity(allocator, 12);
     defer p1_data_buf.deinit(allocator);
     try p1_data_buf.appendSlice(allocator, &.{
         .init(.{ 0.5, 0.0, 0.0 }),
@@ -1378,7 +1268,7 @@ test "Search neighbor queries - multi threaded" {
             defer neighbors_single.deinit(allocator);
             for (neighbors_single.items) |*list| list.deinit(allocator);
         }
-        const query_point: S.Vec3 = .init(.{ 0.1, 0.1, 0.1 });
+        const query_point: S.PointType = .init(.{ 0.1, 0.1, 0.1 });
 
         try search.findNeighbors(.{ .single_point = .{
             .point = &query_point,

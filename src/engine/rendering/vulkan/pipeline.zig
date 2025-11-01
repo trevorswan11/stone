@@ -12,20 +12,28 @@ const launcher = @import("../../launcher.zig");
 
 const quad_vertex_shader_bytes align(@alignOf(u32)) = @embedFile("quad_vertex_shader").*;
 const point_vertex_shader_bytes align(@alignOf(u32)) = @embedFile("point_vertex_shader").*;
-const fragment_shader_bytes align(@alignOf(u32)) = @embedFile("fragment_shader").*;
+
+const quad_fragment_shader_bytes align(@alignOf(u32)) = @embedFile("quad_fragment_shader").*;
+const point_fragment_shader_bytes align(@alignOf(u32)) = @embedFile("point_fragment_shader").*;
+
 const compute_shader_bytes align(@alignOf(u32)) = @embedFile("compute_shader").*;
 
 const ShaderModuleType = enum {
     quad_vertex,
     point_vertex,
-    fragment,
+    quad_fragment,
+    point_fragment,
     compute,
 };
 
 const ShaderModule = struct { [*]const u32, usize };
+
 const quad_vertex_shader: ShaderModule = .{ @ptrCast(&quad_vertex_shader_bytes), quad_vertex_shader_bytes.len };
 const point_vertex_shader: ShaderModule = .{ @ptrCast(&point_vertex_shader_bytes), point_vertex_shader_bytes.len };
-const fragment_shader: ShaderModule = .{ @ptrCast(&fragment_shader_bytes), fragment_shader_bytes.len };
+
+const quad_fragment_shader: ShaderModule = .{ @ptrCast(&quad_fragment_shader_bytes), quad_fragment_shader_bytes.len };
+const point_fragment_shader: ShaderModule = .{ @ptrCast(&point_fragment_shader_bytes), point_fragment_shader_bytes.len };
+
 const compute_shader: ShaderModule = .{ @ptrCast(&compute_shader_bytes), compute_shader_bytes.len };
 
 /// Creates a shader module from the given bytes.
@@ -38,7 +46,8 @@ pub fn createShaderModule(
     const module, const len = comptime switch (module_type) {
         .quad_vertex => quad_vertex_shader,
         .point_vertex => point_vertex_shader,
-        .fragment => fragment_shader,
+        .quad_fragment => quad_fragment_shader,
+        .point_fragment => point_fragment_shader,
         .compute => compute_shader,
     };
 
@@ -66,9 +75,9 @@ pub const Graphics = struct {
     /// This does allow for more aggressive optimizations, however.
     pub fn init(stone: *launcher.Stone, comptime flavor: enum { quad, point }) !Graphics {
         var self: Graphics = undefined;
-        const topology: vk.PrimitiveTopology, const vert_shader: ShaderModuleType = comptime switch (flavor) {
-            .quad => .{ .triangle_list, .quad_vertex },
-            .point => .{ .point_list, .point_vertex },
+        const topology: vk.PrimitiveTopology, const vert_shader: ShaderModuleType, const frag_shader: ShaderModuleType = comptime switch (flavor) {
+            .quad => .{ .triangle_list, .quad_vertex, .quad_fragment },
+            .point => .{ .point_list, .point_vertex, .point_fragment },
         };
 
         // Create the vertex and fragment shader modules
@@ -83,7 +92,7 @@ pub const Graphics = struct {
             .p_name = "main",
         };
 
-        const frag = try createShaderModule(stone, .fragment);
+        const frag = try createShaderModule(stone, frag_shader);
         defer stone.logical_device.destroyShaderModule(frag, null);
 
         const frag_stage_info: vk.PipelineShaderStageCreateInfo = .{

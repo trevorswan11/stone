@@ -10,6 +10,7 @@ const launcher = @import("../../launcher.zig");
 const pipeline = @import("pipeline.zig");
 const draw = @import("draw.zig");
 
+const box = @import("../sph/box.zig");
 const particle = @import("../sph/particle.zig");
 
 /// A generic buffer implementation.
@@ -132,7 +133,7 @@ pub const VertexBuffer = struct {
     buffer: Buffer,
 
     pub fn init(stone: *launcher.Stone) !VertexBuffer {
-        const buffer_size = pipeline.vertices_size;
+        const buffer_size = box.vertices_size;
 
         // Create a temporary buffer only visible to the host
         var staging_buffer: Buffer = try .init(
@@ -159,8 +160,8 @@ pub const VertexBuffer = struct {
         ) orelse return error.MemoryMapFailed;
         defer stone.logical_device.unmapMemory(staging_buffer.mem);
 
-        const casted: *@TypeOf(pipeline.vertices) = @ptrCast(@alignCast(data));
-        @memcpy(casted, &pipeline.vertices);
+        const casted: *@TypeOf(box.vertices) = @ptrCast(@alignCast(data));
+        @memcpy(casted, &box.vertices);
 
         // Create a device local buffer to use as the actual vertex buffer
         const vertex_buffer: Buffer = try .init(
@@ -203,7 +204,7 @@ pub const IndexBuffer = struct {
     buffer: Buffer,
 
     pub fn init(stone: *launcher.Stone) !IndexBuffer {
-        const buffer_size = pipeline.indices_size;
+        const buffer_size = box.indices_size;
 
         // Create a temporary buffer only visible to the host
         var staging_buffer: Buffer = try .init(
@@ -230,8 +231,8 @@ pub const IndexBuffer = struct {
         ) orelse return error.MemoryMapFailed;
         defer stone.logical_device.unmapMemory(staging_buffer.mem);
 
-        const casted: *@TypeOf(pipeline.indices) = @ptrCast(@alignCast(data));
-        @memcpy(casted, &pipeline.indices);
+        const casted: *@TypeOf(box.indices) = @ptrCast(@alignCast(data));
+        @memcpy(casted, &box.indices);
 
         // Create a device local buffer to use as the actual index buffer
         const index_buffer: Buffer = try .init(
@@ -270,9 +271,10 @@ pub const IndexBuffer = struct {
     }
 };
 
-pub const NativeMat4 = [4]pipeline.Mat4.VecType.VecType;
+pub const NativeMat4 = [4]box.Mat4.VecType.VecType;
 pub const NativeUniformBufferObject = struct {
     dt: f32 align(16),
+    particle_size: f32 align(16),
     quad_model: NativeMat4 align(16),
     point_model: NativeMat4 align(16),
     view: NativeMat4 align(16),
@@ -281,6 +283,7 @@ pub const NativeUniformBufferObject = struct {
     pub fn init(op: OpUniformBufferObject) NativeUniformBufferObject {
         return .{
             .dt = op.dt,
+            .particle_size = op.particle_size,
             .quad_model = opToNative(op.quad_model),
             .point_model = opToNative(op.point_model),
             .view = opToNative(op.view),
@@ -297,9 +300,10 @@ pub const NativeUniformBufferObject = struct {
     }
 };
 
-pub const OpMat4 = pipeline.Mat4;
+pub const OpMat4 = box.Mat4;
 pub const OpUniformBufferObject = struct {
     dt: f32 = 0.0,
+    particle_size: f32 = 1.0,
     quad_model: OpMat4 = .splat(0.0),
     point_model: OpMat4 = .splat(0.0),
     view: OpMat4 = .splat(0.0),

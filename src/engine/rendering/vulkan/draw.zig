@@ -12,6 +12,7 @@ const launcher = @import("../../launcher.zig");
 const pipeline = @import("pipeline.zig");
 const buffer_ = @import("buffer.zig");
 
+const box = @import("../sph/box.zig");
 const particle = @import("../sph/particle.zig");
 
 pub const max_frames_in_flight = 2;
@@ -162,7 +163,7 @@ pub const Command = struct {
             buffer,
             stone.index_buffer.buffer.handle,
             0,
-            pipeline.index_type,
+            box.index_type,
         );
 
         stone.logical_device.cmdBindDescriptorSets(
@@ -178,7 +179,7 @@ pub const Command = struct {
 
         stone.logical_device.cmdDrawIndexed(
             buffer,
-            @intCast(pipeline.indices.len),
+            @intCast(box.indices.len),
             1,
             0,
             0,
@@ -426,10 +427,11 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
 
     const ubo: buffer_.OpUniformBufferObject = .{
         .dt = stone.timestep.dt,
+        .particle_size = 2.0,
         .quad_model = core.mat.rotate(
             f32,
             comptime .identity(1.0),
-            @rem(dt * std.math.degreesToRadians(90.0), 360.0),
+            dt * 0.0, // @rem(dt * std.math.degreesToRadians(90.0), 360.0),
             .init(.{ 0.0, 0.0, 1.0 }),
         ),
         .point_model = core.mat.rotate(
@@ -440,9 +442,9 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
         ),
         .view = core.mat.lookAt(
             f32,
-            comptime .init(.{ 0.0, 0.0, 2.0 }),
+            comptime .init(.{ 2.0, 2.0, 2.0 }),
             comptime .splat(0.0),
-            comptime .init(.{ 0.0, 1.0, 1.0 }),
+            comptime .init(.{ 0.0, 0.0, 1.0 }),
         ),
         .proj = core.mat.perspective(
             f32,

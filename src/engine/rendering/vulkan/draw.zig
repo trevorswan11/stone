@@ -207,7 +207,7 @@ pub const Command = struct {
 
         stone.logical_device.cmdDraw(
             buffer,
-            @intCast(stone.particles.len),
+            @intCast(stone.sph.particles.len),
             1,
             0,
             0,
@@ -351,7 +351,7 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
     };
 
     updateUniformBuffer(stone, current_frame);
-    particle.updateParticles(stone);
+    try stone.sph.updateParticles(stone.timestep.dt, stone.particle_vertex_buffer.mapped);
 
     try stone.logical_device.resetFences(graphics_fences.len, &graphics_fences);
 
@@ -454,6 +454,6 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
     };
 
     const mem = stone.uniform_buffers.mapped[current_frame];
-    const casted: *buffer_.NativeUniformBufferObject = @ptrCast(@alignCast(mem));
-    casted.* = .init(ubo);
+    const mapped_ubo: *buffer_.NativeUniformBufferObject = @ptrCast(@alignCast(mem));
+    mapped_ubo.* = .init(ubo);
 }

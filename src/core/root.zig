@@ -7,8 +7,9 @@ pub const ranges = @import("threading/ranges.zig");
 
 pub const hash = @import("neighborhood/hash.zig");
 pub const points = @import("neighborhood/points.zig");
-pub const search = @import("neighborhood/search.zig");
 pub const zorder = @import("neighborhood/zorder.zig");
+pub const search = @import("neighborhood/search.zig");
+pub const Search = search.Search;
 
 pub const vec = @import("math/vec.zig");
 pub const mat = @import("math/mat.zig");

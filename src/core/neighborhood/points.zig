@@ -21,7 +21,6 @@ pub const PointID = struct {
 /// T must be a float, and this is confirmed at comptime.
 pub fn PointSet(comptime T: type, comptime P: type, comptime config: struct {
     single_threaded: bool,
-    position_field: []const u8 = "vec",
 }) type {
     switch (@typeInfo(T)) {
         .float => {},
@@ -29,37 +28,7 @@ pub fn PointSet(comptime T: type, comptime P: type, comptime config: struct {
     }
 
     switch (@typeInfo(P)) {
-        .@"struct" => {
-            if (!@hasField(P, config.position_field)) {
-                @compileError("P must have field " ++ config.position_field);
-            }
-
-            const FieldType = @FieldType(P, config.position_field);
-            switch (@typeInfo(FieldType)) {
-                .array => |a| {
-                    if (a.child != T) {
-                        @compileError("P field " ++ config.position_field ++ " must have child type " ++ @typeName(T));
-                    } else if (a.len < 3) {
-                        @compileError("P field " ++ config.position_field ++ " must have length 3 or greater");
-                    }
-                },
-                .pointer => |p| {
-                    if (p.child != T) {
-                        @compileError("P field " ++ config.position_field ++ " must have child type " ++ @typeName(T));
-                    } else if (p.size == .one or p.size == .c) {
-                        @compileError("P field " ++ config.position_field ++ " must be an indexable pointer");
-                    }
-                },
-                .vector => |v| {
-                    if (v.child != T) {
-                        @compileError("P field " ++ config.position_field ++ " must have child type " ++ @typeName(T));
-                    } else if (v.len < 3) {
-                        @compileError("P field " ++ config.position_field ++ " must have length 3 or greater");
-                    }
-                },
-                else => @compileError("P field " ++ config.position_field ++ " must be an array, vector, or pointer"),
-            }
-        },
+        .@"struct" => {},
         else => @compileError("P must be a struct type"),
     }
 

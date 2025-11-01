@@ -12,6 +12,7 @@ const draw = @import("draw.zig");
 
 const box = @import("../sph/box.zig");
 const particle = @import("../sph/particle.zig");
+const System = @import("../sph/System.zig");
 
 /// A generic buffer implementation.
 ///
@@ -160,8 +161,8 @@ pub const VertexBuffer = struct {
         ) orelse return error.MemoryMapFailed;
         defer stone.logical_device.unmapMemory(staging_buffer.mem);
 
-        const casted: *@TypeOf(box.vertices) = @ptrCast(@alignCast(data));
-        @memcpy(casted, &box.vertices);
+        const mapped_vertices: *@TypeOf(box.vertices) = @ptrCast(@alignCast(data));
+        @memcpy(mapped_vertices, &box.vertices);
 
         // Create a device local buffer to use as the actual vertex buffer
         const vertex_buffer: Buffer = try .init(
@@ -231,8 +232,8 @@ pub const IndexBuffer = struct {
         ) orelse return error.MemoryMapFailed;
         defer stone.logical_device.unmapMemory(staging_buffer.mem);
 
-        const casted: *@TypeOf(box.indices) = @ptrCast(@alignCast(data));
-        @memcpy(casted, &box.indices);
+        const mapped_indices: *@TypeOf(box.indices) = @ptrCast(@alignCast(data));
+        @memcpy(mapped_indices, &box.indices);
 
         // Create a device local buffer to use as the actual index buffer
         const index_buffer: Buffer = try .init(
@@ -411,8 +412,8 @@ pub const StorageBuffers = struct {
         ) orelse return error.MemoryMapFailed;
         defer stone.logical_device.unmapMemory(staging_buffer.mem);
 
-        const casted: [*]particle.NativeParticle = @ptrCast(@alignCast(data));
-        @memcpy(casted, native_particles);
+        const mapped_particles: [*]particle.NativeParticle = @ptrCast(@alignCast(data));
+        @memcpy(mapped_particles, native_particles);
 
         // Initialize storage objects by copying the staging buffer's mem
         for (self.buffers) |*buf| {
@@ -460,7 +461,7 @@ pub const ParticleVertexBuffer = struct {
     size: vk.DeviceSize,
 
     pub fn init(stone: *launcher.Stone) !ParticleVertexBuffer {
-        const size = @sizeOf(particle.NativeParticle) * particle.max_particles;
+        const size = @sizeOf(particle.NativeParticle) * System.max_particles;
 
         // Create a buffer for both the host and device
         const buffer = try Buffer.init(

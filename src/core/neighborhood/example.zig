@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const core = @import("core");
 
 const n: usize = 30;
-const n_float: Real = @as(Real, @floatFromInt(n));
+const n_float: Real = @floatFromInt(n);
 const n_enright_rights: usize = 50;
 
 const Real = f32;

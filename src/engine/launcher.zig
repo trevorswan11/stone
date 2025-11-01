@@ -12,7 +12,7 @@ const draw = @import("rendering/vulkan/draw.zig");
 const sync = @import("rendering/vulkan/sync.zig");
 const buffer = @import("rendering/vulkan/buffer.zig");
 
-const particle = @import("rendering/sph/particle.zig");
+const System = @import("rendering/sph/System.zig");
 
 const vk = vulkan.lib;
 const BaseWrapper = vk.BaseWrapper;
@@ -73,7 +73,7 @@ pub const Stone = struct {
     uniform_buffers: buffer.UniformBuffers = undefined,
     storage_buffers: buffer.StorageBuffers = undefined,
 
-    particles: []particle.OpParticle = undefined,
+    sph: *System = undefined,
     particle_vertex_buffer: buffer.ParticleVertexBuffer = undefined,
 
     command: draw.Command = undefined,
@@ -86,16 +86,15 @@ pub const Stone = struct {
             .allocator = allocator,
         };
 
+        self.sph, const thread = try System.init(self.allocator);
+
         try self.initWindow();
         self.vkb = .load(glfw.getInstanceProcAddress);
         try self.initVulkan();
 
         self.timestep = .init();
-        self.particles = try particle.OpParticle.spawn(
-            &self,
-            @bitCast(self.timestep.start_time_us),
-            particle.max_particles,
-        );
+        thread.join();
+
         return self;
     }
 
@@ -106,7 +105,7 @@ pub const Stone = struct {
             self.swapchain_lists.deinit(self.allocator);
             self.command.deinit(self.allocator);
             self.allocator.free(self.descriptor_sets);
-            self.allocator.free(self.particles);
+            self.sph.deinit();
 
             self.allocator.destroy(self.logical_device.wrapper);
             self.allocator.destroy(self.instance.wrapper);

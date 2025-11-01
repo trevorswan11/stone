@@ -137,6 +137,18 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
             std.debug.assert(m != 0);
             return self.scale(1.0 / m);
         }
+
+        /// Provides immutable element index into the matrix.
+        pub fn at(self: *const Self, idx: usize) T {
+            std.debug.assert(idx < self.len);
+            return self.vec[idx];
+        }
+
+        /// Provides mutable element index into the matrix.
+        pub fn ptrAt(self: *Self, idx: usize) *T {
+            std.debug.assert(idx < self.len);
+            return &self.vec[idx];
+        }
     };
 }
 

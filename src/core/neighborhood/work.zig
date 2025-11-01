@@ -99,7 +99,7 @@ pub fn ActualSearch(
                         var entry_ids: [2]points.ValueType = .{
                             entry_idx.*, value,
                         };
-                        
+
                         if (entry_ids[0] > entry_ids[1]) {
                             entry_ids = .{
                                 value, entry_idx.*,

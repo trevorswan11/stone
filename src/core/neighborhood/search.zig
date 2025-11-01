@@ -52,8 +52,8 @@ pub const grid_center = 13;
 ///
 /// T must be a float, and this is confirmed at comptime.
 ///
-/// P must be a struct that has an indexable position field with the `position_field` name in config.
-/// This fields child type must be T and must be at least of length 3.
+/// P must be a struct and you must provide a function that provides access to a coordinate element.
+/// The Vec3 access is provided for you when a null fn is given for ease of use.
 pub fn Search(comptime T: type, comptime P: type, comptime config: struct {
     initial_num_point_sets: usize = 50,
     initial_num_indices: usize = 50,
@@ -61,8 +61,8 @@ pub fn Search(comptime T: type, comptime P: type, comptime config: struct {
     threadedness: union(enum) {
         single_threaded: void,
         multithreaded: usize,
-    },
-    position_field: []const u8 = "vec",
+    } = .single_threaded,
+    at: ?fn (*const P, usize) T = null,
 }) type {
     switch (@typeInfo(T)) {
         .float => {},
@@ -85,10 +85,10 @@ pub fn Search(comptime T: type, comptime P: type, comptime config: struct {
         pub const initial_num_neighbors = config.initial_num_neighbors;
 
         const Self = @This();
+        const at = config.at orelse vec.Vector(T, 3).at;
 
         pub const PointSet = points.PointSet(T, P, .{
             .single_threaded = single_threaded,
-            .position_field = config.position_field,
         });
         const PointType = PointSet.PointType;
         pub const HashEntry = hash.Entry(initial_num_indices);
@@ -653,14 +653,7 @@ pub fn Search(comptime T: type, comptime P: type, comptime config: struct {
         fn distanceSquared(a: *const P, b: *const P) T {
             var dist: T = 0;
             inline for (0..3) |i| {
-                const diff = @field(
-                    a,
-                    config.position_field,
-                )[i] - @field(
-                    b,
-                    config.position_field,
-                )[i];
-
+                const diff = at(a, i) - at(b, i);
                 dist += diff * diff;
             }
             return dist;
@@ -930,7 +923,7 @@ pub fn Search(comptime T: type, comptime P: type, comptime config: struct {
             var key: hash.Key = undefined;
             inline for (0..3) |i| {
                 key.key[i] = blk: {
-                    const coord = @field(point, config.position_field)[i];
+                    const coord = at(point, i);
                     const val: i32 = @intFromFloat(self.inverse_radius * coord);
                     break :blk if (coord >= 0.0) val else val - 1;
                 };
@@ -947,13 +940,13 @@ const expectEqualSlices = testing.expectEqualSlices;
 
 test "Search initialization and destruction" {
     const allocator = testing.allocator;
-    var search = try Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
+    var search = try Search(f32, vec.Vector(f32, 3), .{}).init(allocator, 3.14, .{});
     defer search.deinit();
 }
 
 test "Cell index probing" {
     const allocator = testing.allocator;
-    var search = try Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
+    var search = try Search(f32, vec.Vector(f32, 3), .{}).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try expectEqualSlices(i32, &.{ -657740481, 153456480, 636497664 }, &search.cellIndex(&.init(.{ -2065305262.0, 481853423.0, 1998602736.0 })).key);
@@ -970,7 +963,7 @@ test "Cell index probing" {
 
 test "Search basic validity" {
     const allocator = testing.allocator;
-    var search = try Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded }).init(allocator, 3.14, .{});
+    var search = try Search(f32, vec.Vector(f32, 3), .{}).init(allocator, 3.14, .{});
     defer search.deinit();
 
     try search.zort();
@@ -981,7 +974,7 @@ test "Search basic usage" {
     const allocator = testing.allocator;
 
     const radius: f32 = 1.0;
-    const S = Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded });
+    const S = Search(f32, vec.Vector(f32, 3), .{});
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 
@@ -1097,7 +1090,7 @@ test "Search neighbor queries - single threaded" {
     const allocator = testing.allocator;
 
     const radius: f32 = 1.0;
-    const S = Search(f32, vec.Vector(f32, 3), .{ .threadedness = .single_threaded });
+    const S = Search(f32, vec.Vector(f32, 3), .{});
     var search = try S.init(allocator, radius, .{});
     defer search.deinit();
 

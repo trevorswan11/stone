@@ -13,18 +13,21 @@ const glfw = @import("../glfw.zig");
 
 const launcher = @import("../../launcher.zig");
 
-const vertex_shader_bytes align(@alignOf(u32)) = @embedFile("vertex_shader").*;
+const quad_vertex_shader_bytes align(@alignOf(u32)) = @embedFile("quad_vertex_shader").*;
+const point_vertex_shader_bytes align(@alignOf(u32)) = @embedFile("point_vertex_shader").*;
 const fragment_shader_bytes align(@alignOf(u32)) = @embedFile("fragment_shader").*;
 const compute_shader_bytes align(@alignOf(u32)) = @embedFile("compute_shader").*;
 
 const ShaderModuleType = enum {
-    vertex,
+    quad_vertex,
+    point_vertex,
     fragment,
     compute,
 };
 
 const ShaderModule = struct { [*]const u32, usize };
-const vertex_shader: ShaderModule = .{ @ptrCast(&vertex_shader_bytes), vertex_shader_bytes.len };
+const quad_vertex_shader: ShaderModule = .{ @ptrCast(&quad_vertex_shader_bytes), quad_vertex_shader_bytes.len };
+const point_vertex_shader: ShaderModule = .{ @ptrCast(&point_vertex_shader_bytes), point_vertex_shader_bytes.len };
 const fragment_shader: ShaderModule = .{ @ptrCast(&fragment_shader_bytes), fragment_shader_bytes.len };
 const compute_shader: ShaderModule = .{ @ptrCast(&compute_shader_bytes), compute_shader_bytes.len };
 
@@ -36,7 +39,8 @@ pub fn createShaderModule(
     comptime module_type: ShaderModuleType,
 ) !vk.ShaderModule {
     const module, const len = comptime switch (module_type) {
-        .vertex => vertex_shader,
+        .quad_vertex => quad_vertex_shader,
+        .point_vertex => point_vertex_shader,
         .fragment => fragment_shader,
         .compute => compute_shader,
     };
@@ -63,11 +67,15 @@ pub const Graphics = struct {
     ///
     /// Note that Vulkan pipelines are practically immutable and changes require full reinitialization.
     /// This does allow for more aggressive optimizations, however.
-    pub fn init(stone: *launcher.Stone) !Graphics {
+    pub fn init(stone: *launcher.Stone, comptime flavor: enum { quad, point }) !Graphics {
         var self: Graphics = undefined;
+        const topology: vk.PrimitiveTopology, const vert_shader: ShaderModuleType = comptime switch (flavor) {
+            .quad => .{ .triangle_list, .quad_vertex },
+            .point => .{ .point_list, .point_vertex },
+        };
 
         // Create the vertex and fragment shader modules
-        const vert = try createShaderModule(stone, .vertex);
+        const vert = try createShaderModule(stone, vert_shader);
         defer stone.logical_device.destroyShaderModule(vert, null);
 
         const vert_stage_info: vk.PipelineShaderStageCreateInfo = .{
@@ -105,7 +113,7 @@ pub const Graphics = struct {
         };
 
         const input_assembly: vk.PipelineInputAssemblyStateCreateInfo = .{
-            .topology = .triangle_list,
+            .topology = topology,
             .primitive_restart_enable = .false,
         };
 
@@ -280,7 +288,7 @@ pub const Compute = struct {
 };
 
 pub const Vertex = struct {
-    pos: Vec2.VecType,
+    pos: Vec3.VecType,
     color: Vec3.VecType,
 
     fn bindingDescription() vk.VertexInputBindingDescription {
@@ -296,7 +304,7 @@ pub const Vertex = struct {
             .{
                 .binding = 0,
                 .location = 0,
-                .format = .r32g32_sfloat,
+                .format = .r32g32b32_sfloat,
                 .offset = @offsetOf(Vertex, "pos"),
             },
             .{
@@ -311,19 +319,19 @@ pub const Vertex = struct {
 
 pub const vertices = [_]Vertex{
     .{
-        .pos = Vec2.decay(.{ -0.5, -0.5 }),
+        .pos = Vec3.decay(.{ -0.5, -0.5, 0.0 }),
         .color = Vec3.decay(.{ 1.0, 0.0, 0.0 }),
     },
     .{
-        .pos = Vec2.decay(.{ 0.5, -0.5 }),
+        .pos = Vec3.decay(.{ 0.5, -0.5, 0.0 }),
         .color = Vec3.decay(.{ 0.0, 1.0, 0.0 }),
     },
     .{
-        .pos = Vec2.decay(.{ 0.5, 0.5 }),
+        .pos = Vec3.decay(.{ 0.5, 0.5, 0.0 }),
         .color = Vec3.decay(.{ 0.0, 0.0, 1.0 }),
     },
     .{
-        .pos = Vec2.decay(.{ -0.5, 0.5 }),
+        .pos = Vec3.decay(.{ -0.5, 0.5, 0.0 }),
         .color = Vec3.decay(.{ 1.0, 1.0, 1.0 }),
     },
 };

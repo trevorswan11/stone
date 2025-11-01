@@ -273,14 +273,16 @@ pub const IndexBuffer = struct {
 pub const NativeMat4 = [4]pipeline.Mat4.VecType.VecType;
 pub const NativeUniformBufferObject = struct {
     dt: f32 align(16),
-    model: NativeMat4 align(16),
+    quad_model: NativeMat4 align(16),
+    point_model: NativeMat4 align(16),
     view: NativeMat4 align(16),
     proj: NativeMat4 align(16),
 
     pub fn init(op: OpUniformBufferObject) NativeUniformBufferObject {
         return .{
             .dt = op.dt,
-            .model = opToNative(op.model),
+            .quad_model = opToNative(op.quad_model),
+            .point_model = opToNative(op.point_model),
             .view = opToNative(op.view),
             .proj = opToNative(op.proj),
         };
@@ -298,7 +300,8 @@ pub const NativeUniformBufferObject = struct {
 pub const OpMat4 = pipeline.Mat4;
 pub const OpUniformBufferObject = struct {
     dt: f32 = 0.0,
-    model: OpMat4 = .splat(0.0),
+    quad_model: OpMat4 = .splat(0.0),
+    point_model: OpMat4 = .splat(0.0),
     view: OpMat4 = .splat(0.0),
     proj: OpMat4 = .splat(0.0),
 };
@@ -444,6 +447,50 @@ pub const StorageBuffers = struct {
         for (self.buffers) |*buf| {
             buf.deinit(logical_device);
         }
+    }
+};
+
+pub const ParticleVertexBuffer = struct {
+    buffer: Buffer,
+    mapped: *anyopaque,
+    size: vk.DeviceSize,
+
+    pub fn init(stone: *launcher.Stone) !ParticleVertexBuffer {
+        const size = @sizeOf(particle.NativeParticle) * particle.max_particles;
+
+        // Create a buffer for both the host and device
+        const buffer = try Buffer.init(
+            stone.logical_device,
+            stone.instance,
+            stone.physical_device.device,
+            size,
+            .{
+                .vertex_buffer_bit = true,
+            },
+            .{
+                .host_visible_bit = true,
+                .host_coherent_bit = true,
+            },
+        );
+
+        // Map it once and keep it mapped
+        const mapped = try stone.logical_device.mapMemory(
+            buffer.mem,
+            0,
+            size,
+            .{},
+        ) orelse return error.MemoryMapFailed;
+
+        return .{
+            .buffer = buffer,
+            .mapped = mapped,
+            .size = size,
+        };
+    }
+
+    pub fn deinit(self: *ParticleVertexBuffer, logical_device: vk.DeviceProxy) void {
+        logical_device.unmapMemory(self.buffer.mem);
+        self.buffer.deinit(logical_device);
     }
 };
 

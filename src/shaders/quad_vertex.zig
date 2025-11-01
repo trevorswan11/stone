@@ -20,8 +20,9 @@ export fn main() callconv(.spirv_vertex) void {
     gpu.binding(&ubo, 0, 0);
 
     const position: Vec4 = .init(.{ in_position[0], in_position[1], 0.0, 1.0 });
-    const perspective = ubo.proj.mul(ubo.view).mul(ubo.model);
+    const perspective = ubo.proj.mul(ubo.view).mul(ubo.quad_model);
     gpu.position_out.* = perspective.mulVec(position).raw;
 
     frag_color = in_color;
+    gpu.point_size_out.* = 10.0;
 }

@@ -12,6 +12,8 @@ const draw = @import("rendering/vulkan/draw.zig");
 const sync = @import("rendering/vulkan/sync.zig");
 const buffer = @import("rendering/vulkan/buffer.zig");
 
+const particle = @import("rendering/sph/particle.zig");
+
 const vk = vulkan.lib;
 const BaseWrapper = vk.BaseWrapper;
 const InstanceWrapper = vk.InstanceWrapper;
@@ -58,7 +60,8 @@ pub const Stone = struct {
     framebuffer_resized: bool = false,
     render_pass: vk.RenderPass = undefined,
 
-    graphics_pipeline: pipeline.Graphics = undefined,
+    graphics_pipeline_quad: pipeline.Graphics = undefined,
+    graphics_pipeline_point: pipeline.Graphics = undefined,
     compute_pipeline: pipeline.Compute = undefined,
 
     descriptor_pool: vk.DescriptorPool = undefined,
@@ -69,6 +72,9 @@ pub const Stone = struct {
     index_buffer: buffer.IndexBuffer = undefined,
     uniform_buffers: buffer.UniformBuffers = undefined,
     storage_buffers: buffer.StorageBuffers = undefined,
+
+    particles: []particle.OpParticle = undefined,
+    particle_vertex_buffer: buffer.ParticleVertexBuffer = undefined,
 
     command: draw.Command = undefined,
     syncs: sync.Syncs = undefined,
@@ -85,6 +91,11 @@ pub const Stone = struct {
         try self.initVulkan();
 
         self.timestep = .init();
+        self.particles = try particle.OpParticle.spawn(
+            &self,
+            @bitCast(self.timestep.start_time_us),
+            particle.max_particles,
+        );
         return self;
     }
 
@@ -95,6 +106,7 @@ pub const Stone = struct {
             self.swapchain_lists.deinit(self.allocator);
             self.command.deinit(self.allocator);
             self.allocator.free(self.descriptor_sets);
+            self.allocator.free(self.particles);
 
             self.allocator.destroy(self.logical_device.wrapper);
             self.allocator.destroy(self.instance.wrapper);
@@ -104,6 +116,7 @@ pub const Stone = struct {
         self.vertex_buffer.deinit(self.logical_device);
         self.index_buffer.deinit(self.logical_device);
         self.uniform_buffers.deinit(self.allocator, self.logical_device);
+        self.particle_vertex_buffer.deinit(self.logical_device);
         // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
         if (false) {
             self.storage_buffers.deinit(self.allocator, self.logical_device);
@@ -112,7 +125,8 @@ pub const Stone = struct {
         self.syncs.deinit(self.allocator, &self.logical_device);
         self.logical_device.destroyCommandPool(self.command.pool, null);
 
-        self.graphics_pipeline.deinit(&self.logical_device);
+        self.graphics_pipeline_quad.deinit(&self.logical_device);
+        self.graphics_pipeline_point.deinit(&self.logical_device);
         // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
         if (false) {
             self.compute_pipeline.deinit(&self.logical_device);
@@ -188,10 +202,13 @@ pub const Stone = struct {
         try self.createFramebuffers();
 
         try self.createCommandPool();
+
         try self.createVertexBuffer();
         try self.createIndexBuffer();
         try self.createUniformBuffers();
         try self.createStorageBuffers();
+        try self.createParticleBuffer();
+
         try self.createCommandBuffers();
         try self.createDescriptorPool();
         try self.createDescriptorSets();
@@ -412,7 +429,8 @@ pub const Stone = struct {
         self.swapchain_lists.deinit(self.allocator);
 
         self.instance.destroySurfaceKHR(self.surface, null);
-        self.graphics_pipeline.deinit(&self.logical_device);
+        self.graphics_pipeline_quad.deinit(&self.logical_device);
+        self.graphics_pipeline_point.deinit(&self.logical_device);
         self.logical_device.destroyRenderPass(self.render_pass, null);
 
         // Rebuild the swapchain
@@ -570,7 +588,8 @@ pub const Stone = struct {
 
     /// Creates the graphics pipeline for the application.
     fn createGraphicsPipeline(self: *Stone) !void {
-        self.graphics_pipeline = try .init(self);
+        self.graphics_pipeline_quad = try .init(self, .quad);
+        self.graphics_pipeline_point = try .init(self, .point);
     }
 
     /// Create the compute pipeline for the application.
@@ -644,6 +663,11 @@ pub const Stone = struct {
         // TODO: Bring me back when https://github.com/ziglang/zig/pull/24681
         if (true) return;
         self.storage_buffers = try .init(self);
+    }
+
+    /// Allocates the particle vertex buffer as a substitute for compute shaders
+    fn createParticleBuffer(self: *Stone) !void {
+        self.particle_vertex_buffer = try .init(self);
     }
 
     /// Creates the descriptor set for binding uniform buffers in the shader.

@@ -12,6 +12,8 @@ const launcher = @import("../../launcher.zig");
 const pipeline = @import("pipeline.zig");
 const buffer_ = @import("buffer.zig");
 
+const particle = @import("../sph/particle.zig");
+
 pub const max_frames_in_flight = 2;
 
 pub const Command = struct {
@@ -105,7 +107,7 @@ pub const Command = struct {
         stone.logical_device.cmdBindPipeline(
             buffer,
             .graphics,
-            stone.graphics_pipeline.pipeline,
+            stone.graphics_pipeline_quad.pipeline,
         );
 
         // The view port and scissor state must be created here since they're dynamic
@@ -118,7 +120,7 @@ pub const Command = struct {
             .max_depth = 1.0,
         }};
 
-        std.debug.assert(viewports.len == stone.graphics_pipeline.viewport_count);
+        std.debug.assert(viewports.len == stone.graphics_pipeline_quad.viewport_count);
         stone.logical_device.cmdSetViewport(
             buffer,
             0,
@@ -135,7 +137,7 @@ pub const Command = struct {
             },
         }};
 
-        std.debug.assert(scissors.len == stone.graphics_pipeline.scissor_count);
+        std.debug.assert(scissors.len == stone.graphics_pipeline_quad.scissor_count);
         stone.logical_device.cmdSetScissor(
             buffer,
             0,
@@ -166,7 +168,7 @@ pub const Command = struct {
         stone.logical_device.cmdBindDescriptorSets(
             buffer,
             .graphics,
-            stone.graphics_pipeline.layout,
+            stone.graphics_pipeline_quad.layout,
             0,
             1,
             @ptrCast(&stone.descriptor_sets[current_frame]),
@@ -179,6 +181,33 @@ pub const Command = struct {
             @intCast(pipeline.indices.len),
             1,
             0,
+            0,
+            0,
+        );
+
+        // Draw the points now
+        stone.logical_device.cmdBindPipeline(
+            buffer,
+            .graphics,
+            stone.graphics_pipeline_point.pipeline,
+        );
+
+        const particle_vertex_buffers = [_]vk.Buffer{
+            stone.particle_vertex_buffer.buffer.handle,
+        };
+
+        stone.logical_device.cmdBindVertexBuffers(
+            buffer,
+            0,
+            1,
+            &particle_vertex_buffers,
+            &offsets,
+        );
+
+        stone.logical_device.cmdDraw(
+            buffer,
+            @intCast(stone.particles.len),
+            1,
             0,
             0,
         );
@@ -321,6 +350,7 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
     };
 
     updateUniformBuffer(stone, current_frame);
+    particle.updateParticles(stone);
 
     try stone.logical_device.resetFences(graphics_fences.len, &graphics_fences);
 
@@ -396,17 +426,23 @@ fn updateUniformBuffer(stone: *launcher.Stone, current_frame: u32) void {
 
     const ubo: buffer_.OpUniformBufferObject = .{
         .dt = stone.timestep.dt,
-        .model = core.mat.rotate(
+        .quad_model = core.mat.rotate(
             f32,
             comptime .identity(1.0),
             @rem(dt * std.math.degreesToRadians(90.0), 360.0),
             .init(.{ 0.0, 0.0, 1.0 }),
         ),
+        .point_model = core.mat.rotate(
+            f32,
+            comptime .identity(1.0),
+            0.0,
+            .init(.{ 0.0, 0.0, 1.0 }),
+        ),
         .view = core.mat.lookAt(
             f32,
-            comptime .splat(2.0),
+            comptime .init(.{ 0.0, 0.0, 2.0 }),
             comptime .splat(0.0),
-            comptime .init(.{ 0.0, 0.0, 1.0 }),
+            comptime .init(.{ 0.0, 1.0, 1.0 }),
         ),
         .proj = core.mat.perspective(
             f32,

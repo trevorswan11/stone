@@ -48,20 +48,20 @@ pub const Vertex = struct {
 
 pub const vertices = [_]Vertex{
     .{
-        .pos = Vec3.decay(.{ -1.0, -1.0, 0.0 }),
-        .color = Vec4.decay(.{ 1.0, 0.0, 0.0, 1.0 }),
+        .pos = Vec3.decay(.{ -2.0, -2.0, -0.75 }),
+        .color = Vec4.decay(.{ 0.5, 0.5, 0.5, 1.0 }),
     },
     .{
-        .pos = Vec3.decay(.{ 1.0, -1.0, 0.0 }),
-        .color = Vec4.decay(.{ 0.0, 1.0, 0.0, 1.0 }),
+        .pos = Vec3.decay(.{ 2.0, -2.0, -0.75 }),
+        .color = Vec4.decay(.{ 0.5, 0.5, 0.5, 1.0 }),
     },
     .{
-        .pos = Vec3.decay(.{ 1.0, 1.0, 0.0 }),
-        .color = Vec4.decay(.{ 0.0, 0.0, 1.0, 1.0 }),
+        .pos = Vec3.decay(.{ 2.0, 2.0, -0.75 }),
+        .color = Vec4.decay(.{ 0.5, 0.5, 0.5, 1.0 }),
     },
     .{
-        .pos = Vec3.decay(.{ -1.0, 1.0, 0.0 }),
-        .color = Vec4.decay(.{ 1.0, 1.0, 1.0, 1.0 }),
+        .pos = Vec3.decay(.{ -2.0, 2.0, -0.75 }),
+        .color = Vec4.decay(.{ 0.5, 0.5, 0.5, 1.0 }),
     },
 };
 pub const vertices_size = @sizeOf(@TypeOf(vertices));

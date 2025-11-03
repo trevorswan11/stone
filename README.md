@@ -8,6 +8,9 @@
   A 3D Fluid Simulation Engine Written in Zig.
 </p>
 
+> [!NOTE]
+> This project is currently in a state where neighbors can be indexed and iterated over and particles can be rendered. Due to limitations in Zig's spirv backend and its changes not being official until at least 0.16, I have made the decision to postpone work. I have already learned a lot from writing a full Vulkan backend and graphics pipeline, but meaningful progress cannot be made here without compute shaders. In the meantime, I will be fully dedicating my time to learning C through my new project: [conch](https://github.com/trevorswan11/conch). 
+
 # Getting Started
 For a quick build of the project (assuming you have the dependencies listed below), simply run:
 ```sh

@@ -10,6 +10,8 @@ const launcher = @import("../../launcher.zig");
 const box = @import("box.zig");
 const draw = @import("../vulkan/draw.zig");
 
+pub const particle_size: f32 = 10.0;
+
 /// The particle type that the SPH system likes to work with.
 ///
 /// Only the position and color are forwarded to the gpu.

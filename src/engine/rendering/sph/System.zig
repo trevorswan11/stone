@@ -33,6 +33,8 @@ const Search = core.Search(
     },
 );
 
+const epsilon: f32 = 1e-9;
+
 pub const workgroup_load = 256;
 pub const workgroup_count = 4;
 pub const max_particles = workgroup_load * workgroup_count;
@@ -40,17 +42,17 @@ pub const max_particles = workgroup_load * workgroup_count;
 const boundary_layers = 2;
 const boundary_particle_spacing = 0.1;
 
-const wall: f32 = 0.75;
+const wall: f32 = 1.0;
 const radius: f32 = 0.2;
 const damping_factor: f32 = 0.5;
 const bounce_factor: f32 = -1;
 
-const smoothing_length: f32 = 0.2;
-const rest_density: f32 = 1.0;
+const smoothing_length: f32 = 1.0;
+const rest_density: f32 = 1000.0;
 const fluid_stiffness: f32 = 3.0;
 const wall_stiffness: f32 = 6.0;
 const gamma: f32 = 7.0;
-const speed_of_sound: f32 = 20.0;
+const speed_of_sound: f32 = 1481.0;
 const mass: f32 = 0.018;
 const viscosity: f32 = 0.00089;
 
@@ -353,7 +355,11 @@ inline fn densityDifferentialUpdate(i: *particle.OpParticle, j: *const particle.
 }
 
 inline fn accelerationDifferentialUpdate(i: *particle.OpParticle, j: *const particle.OpParticle) void {
+    // Skip sufficiently close interactions to avoid NaN
     const r_vec = i.position.sub(j.position);
+    if (r_vec.magSq() < epsilon) {
+        return;
+    }
 
     // Pressure acceleration
     const p_term = blk: {

@@ -10,26 +10,39 @@ const launcher = @import("../../launcher.zig");
 const box = @import("box.zig");
 const draw = @import("../vulkan/draw.zig");
 
+/// The particle type that the SPH system likes to work with.
+///
+/// Only the position and color are forwarded to the gpu.
 pub const OpParticle = struct {
     position: box.Vec3,
-    velocity: box.Vec3,
     color: box.Vec4,
+
+    velocity: box.Vec3 = .splat(0.0),
+    acceleration: box.Vec3 = .splat(0.0),
+    viscosity: f32 = 0.0,
+
+    mass: f32,
+    density: f32,
+    pressure: f32,
+
+    stationary: bool,
 
     pub fn at(self: *const OpParticle, i: usize) f32 {
         return self.position.at(i);
     }
 };
 
+/// The particle type that is passed to the shader.
+///
+/// Only contains position and color information.
 pub const NativeParticle = struct {
     position: box.Vec3.VecType,
     color: box.Vec4.VecType,
-    velocity: box.Vec3.VecType,
 
     pub fn init(op: OpParticle) NativeParticle {
         return .{
             .position = op.position.vec,
             .color = op.color.vec,
-            .velocity = op.velocity.vec,
         };
     }
 
@@ -41,7 +54,7 @@ pub const NativeParticle = struct {
         };
     }
 
-    pub fn attributeDescriptions() [3]vk.VertexInputAttributeDescription {
+    pub fn attributeDescriptions() [2]vk.VertexInputAttributeDescription {
         return .{
             .{
                 .binding = 0,
@@ -54,12 +67,6 @@ pub const NativeParticle = struct {
                 .location = 1,
                 .format = .r32g32b32a32_sfloat,
                 .offset = @offsetOf(NativeParticle, "color"),
-            },
-            .{
-                .binding = 0,
-                .location = 2,
-                .format = .r32g32b32_sfloat,
-                .offset = @offsetOf(NativeParticle, "velocity"),
             },
         };
     }

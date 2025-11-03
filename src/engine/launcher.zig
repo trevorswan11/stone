@@ -22,6 +22,21 @@ const DeviceWrapper = vk.DeviceWrapper;
 const Instance = vk.InstanceProxy;
 const LogicalDevice = vk.DeviceProxy;
 
+fn ensureVulkan() void {
+    const recommended_vulkan = "1.4.309.0";
+    if (!std.process.hasEnvVarConstant("VULKAN_SDK")) {
+        std.debug.panic(
+            \\Sorry, it looks like you don't have the Vulkan SDK installed. :-(
+            \\
+            \\Stone requires Vulkan to be installed with "VULKAN_SDK" pointing to the installation directory.
+            \\While other versions are likely acceptable, Stone has been tested with version {s}
+            \\
+            \\https://vulkan.lunarg.com/
+            \\
+        , .{recommended_vulkan});
+    }
+}
+
 const app_name = "Stone";
 
 pub const initial_window_width: u32 = 800;
@@ -82,6 +97,7 @@ pub const Stone = struct {
     timestep: core.Timestep = undefined,
 
     pub fn init(allocator: std.mem.Allocator) !Stone {
+        ensureVulkan();
         var self: Stone = .{
             .allocator = allocator,
         };

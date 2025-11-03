@@ -4,7 +4,9 @@ const std = @import("std");
 ///
 /// Implemented with SIMD in mind.
 /// Other than `splat`, this does not wrap any other builtins.
+///
 /// Desired operations not provided by this api should access the `vec` field directly.
+/// Operations like `add` are provided but never used in this implementation.
 ///
 /// T must be a known float or int type.
 ///
@@ -103,6 +105,16 @@ pub fn Vector(comptime T: type, comptime n: comptime_int) type {
             }
 
             return .{ .vec = c };
+        }
+
+        /// Element wise addition.
+        pub fn add(self: Self, other: Self) Self {
+            return .spawn(self.vec + other.vec);
+        }
+
+        /// Element wise subtraction.
+        pub fn sub(self: Self, other: Self) Self {
+            return .spawn(self.vec - other.vec);
         }
 
         /// Returns the squared magnitude of the vector.

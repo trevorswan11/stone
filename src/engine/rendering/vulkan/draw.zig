@@ -352,7 +352,6 @@ pub fn drawFrame(stone: *launcher.Stone) !void {
 
     updateUniformBuffer(stone, current_frame);
     try stone.sph.updateParticles(stone.timestep.dt, stone.particle_vertex_buffer.mapped);
-    std.debug.print("{d} fps @ {d} p\n", .{ 1.0 / stone.timestep.true_dt, stone.sph.particles.len + stone.sph.boundary.len });
 
     try stone.logical_device.resetFences(graphics_fences.len, &graphics_fences);
 

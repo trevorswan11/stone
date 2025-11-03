@@ -3,7 +3,7 @@ const std = @import("std");
 const hash = @import("hash.zig");
 const vec = @import("../math/vec.zig");
 
-pub const ValueType = u64;
+pub const ValueType = usize;
 
 /// A qualified point with a categorized set id.
 pub const PointID = struct {
@@ -199,7 +199,7 @@ pub fn PointSet(comptime T: type, comptime P: type, comptime config: struct {
 
         /// Reorders an array according to a previously generated sort table by zort.
         ///
-        /// This sort method must be called beforehand.
+        /// The searcher's zort method must be called beforehand.
         pub fn sort(self: *const Self, comptime A: type, list: []A) !void {
             if (self.sort_table.items.len == 0 or list.len == 0) {
                 return error.InvalidOrMissingTable;

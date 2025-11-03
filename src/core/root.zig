@@ -17,6 +17,9 @@ pub const mat = @import("math/mat.zig");
 pub const Vector = vec.Vector;
 pub const Matrix = mat.Matrix;
 
+pub const kernel = @import("math/kernel.zig");
+pub const state = @import("math/state.zig");
+
 test {
     _ = @import("math/Timestep.zig");
     _ = @import("threading/parallel_loop.zig");

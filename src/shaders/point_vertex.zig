@@ -9,7 +9,6 @@ const UniformBufferObject = core.UniformBufferObject;
 extern const ubo: UniformBufferObject addrspace(.uniform);
 
 extern const in_position: @Vector(3, f32) addrspace(.input);
-extern const in_velocity: @Vector(3, f32) addrspace(.input);
 extern const in_color: @Vector(4, f32) addrspace(.input);
 
 extern var frag_color: @Vector(4, f32) addrspace(.output);
@@ -17,7 +16,6 @@ extern var frag_color: @Vector(4, f32) addrspace(.output);
 export fn main() callconv(.spirv_vertex) void {
     gpu.location(&in_position, 0);
     gpu.location(&in_color, 1);
-    gpu.location(&in_velocity, 2);
     gpu.location(&frag_color, 0);
     gpu.binding(&ubo, 0, 0);
 

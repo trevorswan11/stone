@@ -27,8 +27,6 @@ pub const OpParticle = struct {
     density: f32,
     pressure: f32,
 
-    stationary: bool,
-
     pub fn at(self: *const OpParticle, i: usize) f32 {
         return self.position.at(i);
     }

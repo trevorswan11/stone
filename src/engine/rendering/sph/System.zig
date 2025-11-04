@@ -137,7 +137,6 @@ fn spawn(self: *Self) !void {
             .density = 0.0,
             .pressure = 0.0,
             .viscosity = viscosity,
-            .stationary = false,
         };
     }
 
@@ -198,7 +197,6 @@ fn spawnWall(
                     .mass = mass,
                     .density = 0.0,
                     .pressure = 0.0,
-                    .stationary = true,
                 });
             }
         }
@@ -322,7 +320,6 @@ fn step(self: *Self, dt: f32, w_self: f32) !void {
 
     // Third pass - update the particle's positions with damping
     for (self.particles) |*p| {
-        if (p.stationary) continue;
         p.velocity = p.velocity.add(p.acceleration.scale(dt));
         p.position = p.position.add(p.velocity.scale(dt));
 
